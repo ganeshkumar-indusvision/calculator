@@ -27,68 +27,92 @@ class Calculator:
             "abs": lambda a: abs(a),
         }
 
-    def calculate(self, op: str, a: int | float | Decimal,
-                  b: int | float | Decimal = None) -> int | float:
+    def calculate(self, *arg: tuple) -> int | float:
         """Validate the request, run the operation, and return a clean result."""
-        self._validate_input(op, a, b)
-        a = Decimal(str(a))
-        if b is not None:
-            b = Decimal(str(b))
+        self._validate_input(*arg)
+        op = arg[0]
+        operands = [Decimal(str(v)) for v in arg[1:] if v is not None]
+        return self._validate_output(self.operations[op](*operands))
 
-        if b is None:
-            result = self.operations[op](a)
-        else:
-            result = self.operations[op](a, b)
-
-        return self._validate_output(result)
-
-    def _validate_output(self, result: Decimal | int | float) -> int | float:
+    def _validate_output(self, result: Decimal) -> int | float:
         """Convert a whole Decimal to int, otherwise return float."""
-        if result == result.to_integral_value():
-            return int(result)
-        return float(result)
+        return int(result) if result == result.to_integral_value() else float(result)
 
-    def _validate_input(self, op: str, a: int | float | Decimal,
-                  b: int | float | Decimal | None) -> None:
+    def _validate_number(self, number: int | float) -> None:
+        """Raise if number is not a finite int/float/Decimal (bool is rejected)."""
+        if not isinstance(number, (int, float, Decimal)) or isinstance(number, bool):
+            raise ValueError(f"{number!r} is not a valid number")
+        if not Decimal(str(number)).is_finite():
+            raise ValueError(f"{number!r} is not a finite number")
+
+    def _validate_input(self, *arg: tuple) -> None:
         """Validate an input request before running the operation."""
-        # print(op,a,b)
-        # print(type(op),type(a),type(b))
+        op = arg[0]
         if op not in self.operations:
             raise ValueError(f"Unknown operation: {op}")
 
-        # bool is subclass of int so dealing with it seperately as well 
-        # a should be int,decimal and float only and it should not be NaN,Inf, None, True, 
-        # Allow only Data type int, float,decimal 
-        if not isinstance(a, (int, float, Decimal)) or isinstance(a, bool):
-            raise ValueError(f"{a!r} is not a valid number")
+        args = [v for v in arg[1:] if v is not None]
+        n = self.operations[op].__code__.co_argcount
+        if len(args) != n:
+            raise ValueError(f"{op} takes exactly {n} argument{'s' if n != 1 else ''}")
 
-        # bool is subclass of int so dealing with it seperately as well 
-        # a should be int,decimal, float and None only and it should not be NaN,Inf, None, True, 
-        # Allow only Data type int, float,decimal 
-        if b is not None and (isinstance(b, bool)
-                              or not isinstance(b, (int, float, Decimal))):
-            raise ValueError(f"{b!r} is not a valid number")
+        for v in args:
+            self._validate_number(v)
 
-        if not Decimal(str(a)).is_finite():
-            raise ValueError(f"{a!r} is not a finite number")
-        if b is not None and not Decimal(str(b)).is_finite():
-            raise ValueError(f"{b!r} is not a finite number")
+        # operation-specific rules
+        if op in ("div", "mod") and args[1] == 0:
+            raise ZeroDivisionError("Error: cannot divide by zero")
+        if op == "sqrt" and args[0] < 0:
+            raise ValueError("Error: cannot take square root of a negative number")
+        if op == "pow" and args[0] == 0 and args[1] < 0:
+            raise ZeroDivisionError("Error: cannot raise 0 to a negative power")
+        if op == "pow" and args[0] < 0 and Decimal(str(args[1])) != Decimal(str(args[1])).to_integral_value():
+            raise ValueError("Error: cannot raise a negative number to a fractional power")
 
-        if op in ("sqrt", "abs"):
-            if b is not None:
-                raise ValueError(f"{op} takes exactly 1 argument")
-            if op == "sqrt" and a < 0:
-                raise ValueError("Error: cannot take square root of a negative number")
-        else:
-            if b is None:
-                raise ValueError(f"{op} needs 2 numbers")
-            if op in ("div", "mod") and b == 0:
-                raise ZeroDivisionError("Error: cannot divide by zero")
-            if op == "pow" and a == 0 and b < 0:
-                raise ZeroDivisionError("Error: cannot raise 0 to a negative power")
-            # Decimal ** Decimal raises InvalidOperation for (-x) ** fraction.
-            if op == "pow" and a < 0 and Decimal(str(b)) != Decimal(str(b)).to_integral_value():
-                raise ValueError("Error: cannot raise a negative number to a fractional power")
+
+    # def _validate_input(self, *arg: tuple) -> None:
+    #     """Validate an input request before running the operation."""
+       
+
+        # Leagacy Code       
+        # # print(op,a,b)
+        # # print(type(op),type(a),type(b))
+        # if op not in self.operations:
+        #     raise ValueError(f"Unknown operation: {op}")
+
+        # # bool is subclass of int so dealing with it seperately as well 
+        # # a should be int,decimal and float only and it should not be NaN,Inf, None, True, 
+        # # Allow only Data type int, float,decimal 
+        # if not isinstance(a, (int, float, Decimal)) or isinstance(a, bool):
+        #     raise ValueError(f"{a!r} is not a valid number")
+
+        # # bool is subclass of int so dealing with it seperately as well 
+        # # a should be int,decimal, float and None only and it should not be NaN,Inf, None, True, 
+        # # Allow only Data type int, float,decimal 
+        # if b is not None and (isinstance(b, bool)
+        #                       or not isinstance(b, (int, float, Decimal))):
+        #     raise ValueError(f"{b!r} is not a valid number")
+
+        # if not Decimal(str(a)).is_finite():
+        #     raise ValueError(f"{a!r} is not a finite number")
+        # if b is not None and not Decimal(str(b)).is_finite():
+        #     raise ValueError(f"{b!r} is not a finite number")
+
+        # if op in ("sqrt", "abs"):
+        #     if b is not None:
+        #         raise ValueError(f"{op} takes exactly 1 argument")
+        #     if op == "sqrt" and a < 0:
+        #         raise ValueError("Error: cannot take square root of a negative number")
+        # else:
+        #     if b is None:
+        #         raise ValueError(f"{op} needs 2 numbers")
+        #     if op in ("div", "mod") and b == 0:
+        #         raise ZeroDivisionError("Error: cannot divide by zero")
+        #     if op == "pow" and a == 0 and b < 0:
+        #         raise ZeroDivisionError("Error: cannot raise 0 to a negative power")
+        #     # Decimal ** Decimal raises InvalidOperation for (-x) ** fraction.
+        #     if op == "pow" and a < 0 and Decimal(str(b)) != Decimal(str(b)).to_integral_value():
+        #         raise ValueError("Error: cannot raise a negative number to a fractional power")
 
 
 class History:
@@ -169,7 +193,6 @@ class History:
             f"{i}. {op} {operands} = {result}"
             for i, (op, operands, result) in enumerate(self._entries, start=1)
         )
-
 
 class CalculatorApp:
     """Reads commands from the user and prints results."""
@@ -261,7 +284,9 @@ class CalculatorApp:
                 suffix = "number" if expected == 1 else "numbers"
                 print(f"{op} needs {expected} {suffix}")
             return
-        ## Other than calculate operation this will handle i
+
+        # Non-arithmetic commands: help, history, stats, clear,
+        # ms, mr, mc, exit, quit
         if op in self.app_handlers:
             self.app_handlers[op]()
             return
@@ -303,7 +328,7 @@ class CalculatorApp:
     def _validate_input(self, command: tuple, input_lenght: int) -> bool:
         # check with valid values are there from opertor selection to value checker.
         if command[0].lower() not in self.command_info:
-            print("Unknown command '", command[0], "'. Type 'help' to see options.")
+            print(f"Unknown command '{command[0]}'. Type 'help' to see options.")
             return False
         return True
 
@@ -388,7 +413,6 @@ class CalculatorApp:
         except OSError as e:
             print(f"Warning: could not save memory: {e}")
         print("Memory cleared")
-
 
 if __name__ == "__main__":
     CalculatorApp().run()

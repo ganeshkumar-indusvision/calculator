@@ -83,12 +83,16 @@ class TestCalculator(unittest.TestCase):
         for op, cases in self.input_output.items():
             for a, b, expected in cases:
                 with self.subTest(operation=op, a=a, b=b):
-                    self.assertEqual(self.calc.calculate(op, a, b), expected)
+                    # Mirror the app: omit b when it's None (1-arg ops)
+                    args = (a,) if b is None else (a, b)
+                    self.assertEqual(self.calc.calculate(op, *args), expected)
+
         for op, cases in self.error_cases.items():
             for a, b, expected_exception in cases:
                 with self.subTest(operation=op, a=a, b=b):
                     with self.assertRaises(expected_exception):
-                        self.calc.calculate(op, a, b)
+                        args = (a,) if b is None else (a, b)
+                        self.calc.calculate(op, *args)
 
 
 class TestHistory(unittest.TestCase):
