@@ -3,11 +3,14 @@ import json
 import readline
 from collections import namedtuple
 from pathlib import Path
-import math
-from decimal import Decimal, ROUND_FLOOR  , InvalidOperation
+from decimal import Decimal, ROUND_FLOOR, InvalidOperation
 
 DATA_FILE = Path("calculator_data.json")
 
+# Chosen because namedtuple gives us a free __repr__ that matches the
+# required format (Calculation(op='add', operands=(4, 5), result=9)),
+# plus field access (c.op, c.result) and tuple unpacking
+# (op, operands, result = c).
 Calculation = namedtuple("Calculation", ["op", "operands", "result"])
 
 
@@ -47,6 +50,9 @@ class Calculator:
 
     def _validate_input(self, *arg: tuple) -> None:
         """Validate an input request before running the operation."""
+        if not arg:
+            raise ValueError("No operation given")
+
         op = arg[0]
         if op not in self.operations:
             raise ValueError(f"Unknown operation: {op}")
@@ -68,51 +74,6 @@ class Calculator:
             raise ZeroDivisionError("Error: cannot raise 0 to a negative power")
         if op == "pow" and args[0] < 0 and Decimal(str(args[1])) != Decimal(str(args[1])).to_integral_value():
             raise ValueError("Error: cannot raise a negative number to a fractional power")
-
-
-    # def _validate_input(self, *arg: tuple) -> None:
-    #     """Validate an input request before running the operation."""
-       
-
-        # Leagacy Code       
-        # # print(op,a,b)
-        # # print(type(op),type(a),type(b))
-        # if op not in self.operations:
-        #     raise ValueError(f"Unknown operation: {op}")
-
-        # # bool is subclass of int so dealing with it seperately as well 
-        # # a should be int,decimal and float only and it should not be NaN,Inf, None, True, 
-        # # Allow only Data type int, float,decimal 
-        # if not isinstance(a, (int, float, Decimal)) or isinstance(a, bool):
-        #     raise ValueError(f"{a!r} is not a valid number")
-
-        # # bool is subclass of int so dealing with it seperately as well 
-        # # a should be int,decimal, float and None only and it should not be NaN,Inf, None, True, 
-        # # Allow only Data type int, float,decimal 
-        # if b is not None and (isinstance(b, bool)
-        #                       or not isinstance(b, (int, float, Decimal))):
-        #     raise ValueError(f"{b!r} is not a valid number")
-
-        # if not Decimal(str(a)).is_finite():
-        #     raise ValueError(f"{a!r} is not a finite number")
-        # if b is not None and not Decimal(str(b)).is_finite():
-        #     raise ValueError(f"{b!r} is not a finite number")
-
-        # if op in ("sqrt", "abs"):
-        #     if b is not None:
-        #         raise ValueError(f"{op} takes exactly 1 argument")
-        #     if op == "sqrt" and a < 0:
-        #         raise ValueError("Error: cannot take square root of a negative number")
-        # else:
-        #     if b is None:
-        #         raise ValueError(f"{op} needs 2 numbers")
-        #     if op in ("div", "mod") and b == 0:
-        #         raise ZeroDivisionError("Error: cannot divide by zero")
-        #     if op == "pow" and a == 0 and b < 0:
-        #         raise ZeroDivisionError("Error: cannot raise 0 to a negative power")
-        #     # Decimal ** Decimal raises InvalidOperation for (-x) ** fraction.
-        #     if op == "pow" and a < 0 and Decimal(str(b)) != Decimal(str(b)).to_integral_value():
-        #         raise ValueError("Error: cannot raise a negative number to a fractional power")
 
 
 class History:
@@ -148,6 +109,8 @@ class History:
         """Save history and memory to a JSON file."""
         data = {
             "memory": memory,
+            # JSON has no tuple type, so operand tuples are converted to
+            # lists here. load() converts them back to tuples.
             "history": [
                 {"op": c.op, "operands": list(c.operands), "result": c.result}
                 for c in self._entries
@@ -167,11 +130,14 @@ class History:
             backup = path.with_name(path.name + ".bak")
             try:
                 path.rename(backup)
+                # FR-20 requires this warning on invalid JSON, even though
+                # TR-5 says History shouldn't print. FR-20 wins here.
                 print(f"Warning: {path} was not valid JSON. Renamed to {backup.name}.")
             except OSError:
                 print(f"Warning: could not read {path}. Starting empty.")
             self._entries = []
             return None
+        # Convert operand lists back to tuples for in-memory use.
         self._entries = [
             Calculation(item["op"], tuple(item["operands"]), item["result"])
             for item in data.get("history", [])
@@ -183,21 +149,24 @@ class History:
         self._entries = []
 
     def __len__(self) -> int:
+        """Return the number of entries."""
         return len(self._entries)
 
     def __str__(self) -> str:
+        """Return a numbered, multi-line view of the history."""
         if not self._entries:
             return "No calculations yet"
-        # TR-14: tuple unpacking inside the comprehension
         return "\n".join(
             f"{i}. {op} {operands} = {result}"
             for i, (op, operands, result) in enumerate(self._entries, start=1)
         )
 
+
 class CalculatorApp:
     """Reads commands from the user and prints results."""
 
     def __init__(self) -> None:
+        """Set up the calculator, history, memory, and command tables."""
         self.calculator = Calculator()
         self.history = History()
         self.memory = None
@@ -232,7 +201,9 @@ class CalculatorApp:
             "exit": self._exit,
             "quit": self._exit,
         }
+
     def run(self) -> None:
+        """Run the interactive input loop."""
         memory = self.history.load(DATA_FILE)
         if memory is not None:
             self.memory = memory
@@ -253,20 +224,20 @@ class CalculatorApp:
             self._exit()
 
     def handle_command(self, command: str) -> None:
+        """Parse and execute a single command."""
         if not command:
             self._help()
             return
 
         tokens = tuple(command.split())
-        if not self._validate_input(tokens, len(tokens)):
+        if not self._validate_input(tokens):
             return
 
         op = tokens[0].lower()
         args = tokens[1:]
 
-        # help is special-cased: it takes 0 or 1 argument (help / help <command>),
-        # but command_info says 0, so the generic arg-count check below would
-        # reject "help add". Handle it before that check.
+        # help accepts 0 or 1 argument (help / help <command>). Since
+        # command_info says 0, handle it before the generic arg-count check.
         if op == "help":
             if len(args) > 1:
                 print("help takes 0 or 1 arguments")
@@ -306,6 +277,7 @@ class CalculatorApp:
             print(f"Warning: could not save history: {e}")
 
     def _exit(self) -> None:
+        """Save state and stop the loop."""
         try:
             self.history.save(DATA_FILE, self.memory)
             print(f"\nSaved {len(self.history)} calculations to {DATA_FILE}. Goodbye!")
@@ -323,10 +295,11 @@ class CalculatorApp:
             print(f"Unknown command '{op}'. Type 'help' to see options.")
 
     def _command_help(self, op: str) -> None:
+        """Show description and example for one command."""
         print(op, ":", self.command_info[op][1], self.command_info[op][2])
 
-    def _validate_input(self, command: tuple, input_lenght: int) -> bool:
-        # check with valid values are there from opertor selection to value checker.
+    def _validate_input(self, command: tuple) -> bool:
+        """Return True if the command exists, otherwise print an error and return False."""
         if command[0].lower() not in self.command_info:
             print(f"Unknown command '{command[0]}'. Type 'help' to see options.")
             return False
@@ -335,44 +308,41 @@ class CalculatorApp:
     def _convert_one(self, arg: str) -> int | float:
         """Convert one argument string to a number (or resolve 'last'). Raises ValueError."""
         if arg.lower() == "last":
-            # 'last' means: use the previous result from history
             last = self.history.last_result()
             if last is None:
                 raise ValueError("No previous result yet")
             return last
-        # normal number: try int, then float
         value = self._detect_numeric_type(arg)
         if value is None:
-            # not a number and not 'last' -> error
             raise ValueError(f"'{arg}' is not a valid number")
         return value
 
     def _convert_args(self, args: tuple) -> tuple | None:
         """Convert argument strings to numbers; return None on error (after printing)."""
-        # Input:  args = ('4', '5')  or  ('last', '5')  or  ('4', 'abc')
-        # Output: (4, 5)  or  (previous_result, 5)  or  None (on error)
         try:
-            return tuple(self._convert_one(arg) for arg in args)  # e.g. (4, 5) -- tuple of numbers
+            return tuple(self._convert_one(arg) for arg in args)
         except ValueError as e:
             print(e)
             return None
 
-
     def _detect_numeric_type(self, text: str) -> int | float | None:
+        """Convert text to a finite int/float, or None if not a number."""
         try:
             d = Decimal(text)
         except InvalidOperation:
             return None
-        if not d.is_finite():        # rejects NaN, Inf, -Inf
+        if not d.is_finite():
             return None
         if d == d.to_integral_value():
             return int(d)
         return float(d)
 
     def _print_history(self) -> None:
+        """Print every past calculation."""
         print(self.history)
 
     def _print_stats(self) -> None:
+        """Print count, min, max, and average of results."""
         stats = self.history.stats()
         if stats["count"] == 0:
             print("No calculations yet")
@@ -381,6 +351,7 @@ class CalculatorApp:
               f"max: {stats['max']}, average: {stats['average']:.2f}")
 
     def _clear_history(self) -> None:
+        """Clear the history and persist it."""
         self.history.clear()
         try:
             self.history.save(DATA_FILE, self.memory)
@@ -389,6 +360,7 @@ class CalculatorApp:
         print("History cleared")
 
     def _memory_store(self) -> None:
+        """Store the last result in memory."""
         last = self.history.last_result()
         if last is None:
             print("No previous result yet")
@@ -401,18 +373,21 @@ class CalculatorApp:
         print(f"Stored {last} in memory")
 
     def _memory_recall(self) -> None:
+        """Print the stored memory value."""
         if self.memory is None:
             print("Memory is empty")
             return
         print(self.memory)
 
     def _memory_clear(self) -> None:
+        """Clear memory and persist it."""
         self.memory = None
         try:
             self.history.save(DATA_FILE, self.memory)
         except OSError as e:
             print(f"Warning: could not save memory: {e}")
         print("Memory cleared")
+
 
 if __name__ == "__main__":
     CalculatorApp().run()
