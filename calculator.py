@@ -18,61 +18,62 @@ class Calculator:
     """Performs arithmetic operations."""
 
     def __init__(self) -> None:
-        """Set up the operation table."""
+        """Set up the operation table mapping operation names to (arity, lambda)."""
         self.operations = {
-            "add": lambda a, b: a + b,
-            "sub": lambda a, b: a - b,
-            "mul": lambda a, b: a * b,
-            "div": lambda a, b: a / b,
-            "pow": lambda a, b: a ** b,
-            "mod": lambda a, b: a - (a / b).to_integral_value(rounding=ROUND_FLOOR) * b,
-            "sqrt": lambda a: a.sqrt(),
-            "abs": lambda a: abs(a),
+            "add": (2, lambda a, b: a + b),
+            "sub": (2, lambda a, b: a - b),
+            "mul": (2, lambda a, b: a * b),
+            "div": (2, lambda a, b: a / b),
+            "pow": (2, lambda a, b: a ** b),
+            "mod": (2, lambda a, b: a - (a / b).to_integral_value(rounding=ROUND_FLOOR) * b),
+            "sqrt": (1, lambda a: a.sqrt()),
+            "abs": (1, lambda a: abs(a)),
         }
 
-    def calculate(self, *arg: tuple) -> int | float:
+    def calculate(self, *args: object) -> int | float:
         """Validate the request, run the operation, and return a clean result."""
-        self._validate_input(*arg)
-        op = arg[0]
-        operands = [Decimal(str(v)) for v in arg[1:] if v is not None]
-        return self._validate_output(self.operations[op](*operands))
+        self._validate_input(*args)
+        op = str(args[0])
+        operands = [Decimal(str(v)) for v in args[1:] if v is not None]
+        _, func = self.operations[op]
+        return self._validate_output(func(*operands))
 
     def _validate_output(self, result: Decimal) -> int | float:
         """Convert a whole Decimal to int, otherwise return float."""
         return int(result) if result == result.to_integral_value() else float(result)
 
-    def _validate_number(self, number: int | float) -> None:
+    def _validate_number(self, number: object) -> None:
         """Raise if number is not a finite int/float/Decimal (bool is rejected)."""
         if not isinstance(number, (int, float, Decimal)) or isinstance(number, bool):
             raise ValueError(f"{number!r} is not a valid number")
         if not Decimal(str(number)).is_finite():
             raise ValueError(f"{number!r} is not a finite number")
 
-    def _validate_input(self, *arg: tuple) -> None:
+    def _validate_input(self, *args: object) -> None:
         """Validate an input request before running the operation."""
-        if not arg:
+        if not args:
             raise ValueError("No operation given")
 
-        op = arg[0]
-        if op not in self.operations:
+        op = args[0]
+        if not isinstance(op, str) or op not in self.operations:
             raise ValueError(f"Unknown operation: {op}")
 
-        args = [v for v in arg[1:] if v is not None]
-        n = self.operations[op].__code__.co_argcount
-        if len(args) != n:
+        operands = [v for v in args[1:] if v is not None]
+        n, _ = self.operations[op]
+        if len(operands) != n:
             raise ValueError(f"{op} takes exactly {n} argument{'s' if n != 1 else ''}")
 
-        for v in args:
+        for v in operands:
             self._validate_number(v)
 
         # operation-specific rules
-        if op in ("div", "mod") and args[1] == 0:
+        if op in ("div", "mod") and operands[1] == 0:
             raise ZeroDivisionError("Error: cannot divide by zero")
-        if op == "sqrt" and args[0] < 0:
+        if op == "sqrt" and operands[0] < 0:
             raise ValueError("Error: cannot take square root of a negative number")
-        if op == "pow" and args[0] == 0 and args[1] < 0:
+        if op == "pow" and operands[0] == 0 and operands[1] < 0:
             raise ZeroDivisionError("Error: cannot raise 0 to a negative power")
-        if op == "pow" and args[0] < 0 and Decimal(str(args[1])) != Decimal(str(args[1])).to_integral_value():
+        if op == "pow" and operands[0] < 0 and Decimal(str(operands[1])) != Decimal(str(operands[1])).to_integral_value():
             raise ValueError("Error: cannot raise a negative number to a fractional power")
 
 
@@ -84,8 +85,9 @@ class History:
         self._entries: list[Calculation] = []
 
     def add(self, calc: Calculation) -> None:
-        """Append a calculation to the history."""
-        self._entries.append(calc)
+        """Append a calculation to the history ensuring operands are an immutable tuple."""
+        entry = Calculation(calc.op, tuple(calc.operands), calc.result)
+        self._entries.append(entry)
 
     def last_result(self) -> int | float | None:
         """Return the most recent result, or None if history is empty."""
@@ -119,7 +121,7 @@ class History:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
-    def load(self, path: Path) -> int | float | None:
+    def load(self, path: Path, on_warning: object = None) -> int | float | None:
         """Load history from a JSON file and return the saved memory value."""
         if not path.exists():
             return None
@@ -130,14 +132,15 @@ class History:
             backup = path.with_name(path.name + ".bak")
             try:
                 path.rename(backup)
-                # FR-20 requires this warning on invalid JSON, even though
-                # TR-5 says History shouldn't print. FR-20 wins here.
-                print(f"Warning: {path} was not valid JSON. Renamed to {backup.name}.")
+                msg = f"Warning: {path} was not valid JSON. Renamed to {backup.name}."
             except OSError:
-                print(f"Warning: could not read {path}. Starting empty.")
+                msg = f"Warning: could not read {path}. Starting empty."
+            if callable(on_warning):
+                on_warning(msg)
             self._entries = []
             return None
-        # Convert operand lists back to tuples for in-memory use.
+
+        # Convert operand lists back to tuples for immutability and memory consistency.
         self._entries = [
             Calculation(item["op"], tuple(item["operands"]), item["result"])
             for item in data.get("history", [])
@@ -204,7 +207,7 @@ class CalculatorApp:
 
     def run(self) -> None:
         """Run the interactive input loop."""
-        memory = self.history.load(DATA_FILE)
+        memory = self.history.load(DATA_FILE, on_warning=print)
         if memory is not None:
             self.memory = memory
         print(f"Loaded {len(self.history)} past calculations from {DATA_FILE}")
@@ -288,7 +291,8 @@ class CalculatorApp:
     def _help(self, op: str | None = None) -> None:
         """Show all commands, or details for one command."""
         if op is None:
-            {print(key,":", value[1]) for key,value in self.command_info.items()}
+            for key, value in self.command_info.items():
+                print(key, ":", value[1])
         elif op in self.command_info:
             self._command_help(op)
         else:
