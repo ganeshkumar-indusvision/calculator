@@ -6,3 +6,8 @@ venv/
 # Runtime state written by calculator.py
 calculator_data.json
 calculator.log
+
+
+logs/*
+output/*
+tests/*
