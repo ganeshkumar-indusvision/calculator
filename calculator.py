@@ -228,9 +228,7 @@ class CalculatorApp:
             "quit": self._exit,
         }
 
-        memory = self.history.load(DATA_FILE, on_warning=self.logger.warning)
-        if memory is not None:
-            self.memory = memory
+        self.memory = self.history.load(DATA_FILE, on_warning=self.logger.warning)
         self.logger.info(f"Loaded {len(self.history)} past calculations from {DATA_FILE}")
         self.logger.info("Python Calculator — type 'help' for commands")
 
