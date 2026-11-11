@@ -15,6 +15,15 @@ LOG_FILE = Path("logs/calculator.log")
 # (op, operands, result = c).
 Calculation = namedtuple("Calculation", ["op", "operands", "result"])
 
+class JsonFormatter(logging.Formatter):
+    """Formats log records as JSON strings for the file."""
+    def format(self, record: logging.LogRecord) -> str:
+        return json.dumps({
+            "timestamp": self.formatTime(record, "%Y-%m-%d %H:%M:%S"),
+            "level": record.levelname,
+            "name": record.name,
+            "message": record.getMessage(),
+        })
 
 class Calculator:
     """Performs arithmetic operations."""
@@ -170,15 +179,6 @@ class History:
             for i, (op, operands, result) in enumerate(self._entries, start=1)
         )
 
-class JsonFormatter(logging.Formatter):
-    """Formats log records as JSON strings for the file."""
-    def format(self, record: logging.LogRecord) -> str:
-        return json.dumps({
-            "timestamp": self.formatTime(record, "%Y-%m-%d %H:%M:%S"),
-            "level": record.levelname,
-            "name": record.name,
-            "message": record.getMessage(),
-        })
 class CalculatorApp:
     """Reads commands from the user and prints results."""
 
@@ -241,12 +241,6 @@ class CalculatorApp:
         self.memory = self.history.load(DATA_FILE, on_warning=self.logger.warning)
         self.logger.info(f"Loaded {len(self.history)} past calculations from {DATA_FILE}")
         self.logger.info("Python Calculator — type 'help' for commands")
-    def __del__(self):
-        """Clean up logger handlers to prevent file descriptor leaks."""
-        if hasattr(self, 'logger'):
-            for handler in self.logger.handlers[:]:
-                self.logger.removeHandler(handler)
-                handler.close()
 
     def _exit(self) -> None:
         """Save state and stop the loop."""
@@ -429,6 +423,12 @@ class CalculatorApp:
         except (KeyboardInterrupt, EOFError):
             self._exit()
 
+    def __del__(self):
+        """Clean up logger handlers to prevent file descriptor leaks."""
+        if hasattr(self, 'logger'):
+            for handler in self.logger.handlers[:]:
+                self.logger.removeHandler(handler)
+                handler.close()
 
 if __name__ == "__main__":
     CalculatorApp().run()
