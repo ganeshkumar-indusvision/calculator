@@ -1,11 +1,13 @@
 # calculator.py
 import json
+import logging
 import readline
 from collections import namedtuple
 from pathlib import Path
 from decimal import Decimal, ROUND_FLOOR, InvalidOperation
 
 DATA_FILE = Path("calculator_data.json")
+LOG_FILE = Path("calculator.log")
 
 # Chosen because namedtuple gives us a free __repr__ that matches the
 # required format (Calculation(op='add', operands=(4, 5), result=9)),
@@ -173,6 +175,28 @@ class CalculatorApp:
         self.history = History()
         self.memory = None
         self.running = True
+
+        # logger setup — created per-instance, handlers added only once
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.DEBUG)
+        if not self.logger.handlers:
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(logging.Formatter("%(message)s"))
+            file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+
+            class JsonFormatter(logging.Formatter):
+                def format(self, record: logging.LogRecord) -> str:
+                    return json.dumps({
+                        "timestamp": self.formatTime(record, "%Y-%m-%d %H:%M:%S"),
+                        "level": record.levelname,
+                        "name": record.name,
+                        "message": record.getMessage(),
+                    })
+
+            file_handler.setFormatter(JsonFormatter())
+            self.logger.addHandler(console_handler)
+            self.logger.addHandler(file_handler)
+
         self.command_info: dict[str, tuple[int, str, str]] = {
             "add": (2, "Add two numbers","\nExample: \n> add 1 3 \n> 4"),
             "sub": (2, "Subtract two numbers ","\nExample: \n> sub 5 2 \n> 3"),
@@ -204,26 +228,11 @@ class CalculatorApp:
             "quit": self._exit,
         }
 
-    def run(self) -> None:
-        """Run the interactive input loop."""
-        memory = self.history.load(DATA_FILE, on_warning=print)
+        memory = self.history.load(DATA_FILE, on_warning=self.logger.warning)
         if memory is not None:
             self.memory = memory
-        print(f"Loaded {len(self.history)} past calculations from {DATA_FILE}")
-        print("Python Calculator — type 'help' for commands")
-        try:
-            while self.running:
-                try:
-                    command = input("> ").strip()
-                    self.handle_command(command)
-                except ValueError as e:
-                    print(e)
-                    continue
-                except ZeroDivisionError as e:
-                    print(e)
-                    continue
-        except (KeyboardInterrupt, EOFError):
-            self._exit()
+        self.logger.info(f"Loaded {len(self.history)} past calculations from {DATA_FILE}")
+        self.logger.info("Python Calculator — type 'help' for commands")
 
     def handle_command(self, command: str) -> None:
         """Parse and execute a single command."""
@@ -242,7 +251,7 @@ class CalculatorApp:
         # command_info says 0, handle it before the generic arg-count check.
         if op == "help":
             if len(args) > 1:
-                print("help takes 0 or 1 arguments")
+                self.logger.warning("help takes 0 or 1 arguments")
                 return
             self._help(args[0].lower() if args else None)
             return
@@ -252,10 +261,10 @@ class CalculatorApp:
         # Check argument count against command_info
         if len(args) != expected:
             if expected == 0:
-                print(f"{op} takes no arguments")
+                self.logger.warning(f"{op} takes no arguments")
             else:
                 suffix = "number" if expected == 1 else "numbers"
-                print(f"{op} needs {expected} {suffix}")
+                self.logger.warning(f"{op} needs {expected} {suffix}")
             return
 
         # Non-arithmetic commands: help, history, stats, clear,
@@ -270,41 +279,41 @@ class CalculatorApp:
             return
 
         result = self.calculator.calculate(op, *converted)
-        print(result)
+        self.logger.info("%s", result)
 
         self.history.add(Calculation(op, converted, result))
         try:
             self.history.save(DATA_FILE, self.memory)
         except OSError as e:
-            print(f"Warning: could not save history: {e}")
+            self.logger.warning(f"Warning: could not save history: {e}")
 
     def _exit(self) -> None:
         """Save state and stop the loop."""
         try:
             self.history.save(DATA_FILE, self.memory)
-            print(f"\nSaved {len(self.history)} calculations to {DATA_FILE}. Goodbye!")
+            self.logger.info(f"\nSaved {len(self.history)} calculations to {DATA_FILE}. Goodbye!")
         except OSError as e:
-            print(f"\nCould not save to {DATA_FILE}: {e}. Goodbye!")
+            self.logger.warning(f"\nCould not save to {DATA_FILE}: {e}. Goodbye!")
         self.running = False
 
     def _help(self, op: str | None = None) -> None:
         """Show all commands, or details for one command."""
         if op is None:
             for key, value in self.command_info.items():
-                print(key, ":", value[1])
+                self.logger.info("%s : %s", key, value[1])
         elif op in self.command_info:
             self._command_help(op)
         else:
-            print(f"Unknown command '{op}'. Type 'help' to see options.")
+            self.logger.warning(f"Unknown command '{op}'. Type 'help' to see options.")
 
     def _command_help(self, op: str) -> None:
         """Show description and example for one command."""
-        print(op, ":", self.command_info[op][1], self.command_info[op][2])
+        self.logger.info("%s : %s %s", op, self.command_info[op][1], self.command_info[op][2])
 
     def _validate_input(self, command: tuple) -> bool:
         """Return True if the command exists, otherwise print an error and return False."""
         if command[0].lower() not in self.command_info:
-            print(f"Unknown command '{command[0]}'. Type 'help' to see options.")
+            self.logger.warning(f"Unknown command '{command[0]}'. Type 'help' to see options.")
             return False
         return True
 
@@ -325,7 +334,7 @@ class CalculatorApp:
         try:
             return tuple(self._convert_one(arg) for arg in args)
         except ValueError as e:
-            print(e)
+            self.logger.warning("%s", e)
             return None
 
     def _detect_numeric_type(self, text: str) -> int | float | None:
@@ -342,16 +351,16 @@ class CalculatorApp:
 
     def _print_history(self) -> None:
         """Print every past calculation."""
-        print(self.history)
+        self.logger.info("%s", self.history)
 
     def _print_stats(self) -> None:
         """Print count, min, max, and average of results."""
         stats = self.history.stats()
         if stats["count"] == 0:
-            print("No calculations yet")
+            self.logger.info("No calculations yet")
             return
-        print(f"count: {stats['count']}, min: {stats['min']}, "
-              f"max: {stats['max']}, average: {stats['average']:.2f}")
+        self.logger.info(f"count: {stats['count']}, min: {stats['min']}, "
+                         f"max: {stats['max']}, average: {stats['average']:.2f}")
 
     def _clear_history(self) -> None:
         """Clear the history and persist it."""
@@ -359,28 +368,28 @@ class CalculatorApp:
         try:
             self.history.save(DATA_FILE, self.memory)
         except OSError as e:
-            print(f"Warning: could not save history: {e}")
-        print("History cleared")
+            self.logger.warning(f"Warning: could not save history: {e}")
+        self.logger.info("History cleared")
 
     def _memory_store(self) -> None:
         """Store the last result in memory."""
         last = self.history.last_result()
         if last is None:
-            print("No previous result yet")
+            self.logger.info("No previous result yet")
             return
         self.memory = last
         try:
             self.history.save(DATA_FILE, self.memory)
         except OSError as e:
-            print(f"Warning: could not save memory: {e}")
-        print(f"Stored {last} in memory")
+            self.logger.warning(f"Warning: could not save memory: {e}")
+        self.logger.info(f"Stored {last} in memory")
 
     def _memory_recall(self) -> None:
         """Print the stored memory value."""
         if self.memory is None:
-            print("Memory is empty")
+            self.logger.info("Memory is empty")
             return
-        print(self.memory)
+        self.logger.info("%s", self.memory)
 
     def _memory_clear(self) -> None:
         """Clear memory and persist it."""
@@ -388,8 +397,24 @@ class CalculatorApp:
         try:
             self.history.save(DATA_FILE, self.memory)
         except OSError as e:
-            print(f"Warning: could not save memory: {e}")
-        print("Memory cleared")
+            self.logger.warning(f"Warning: could not save memory: {e}")
+        self.logger.info("Memory cleared")
+
+    def run(self) -> None:
+        """Run the interactive input loop."""
+        try:
+            while self.running:
+                try:
+                    command = input("> ").strip()
+                    self.handle_command(command)
+                except ValueError as e:
+                    self.logger.warning("%s", e)
+                    continue
+                except ZeroDivisionError as e:
+                    self.logger.warning("%s", e)
+                    continue
+        except (KeyboardInterrupt, EOFError):
+            self._exit()
 
 
 if __name__ == "__main__":

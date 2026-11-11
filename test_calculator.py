@@ -1,5 +1,6 @@
 import unittest
 import math
+import logging
 from pathlib import Path
 import tempfile
 import json
@@ -46,6 +47,47 @@ class TestCalculator(unittest.TestCase):
             "abs": [
                 (-7, None, 7), (0, None, 0),
                 (3.5, None, 3.5), (-3.5, None, 3.5)],
+        }
+
+        self.value_error_cases: list[
+            tuple[float | int | bool | None,
+                  float | int | bool | None,
+                  type[Exception]]
+        ] = [
+            (1, None, ValueError), (None, None, ValueError),
+            (math.nan, 1, ValueError), (1, math.nan, ValueError),
+            (math.nan, math.nan, ValueError),
+            (None, 1, ValueError), (1, 'a', ValueError),
+            ('a', -2.5, ValueError), (True, 'a', ValueError),
+            (False, 1, ValueError), (1, False, ValueError),
+            (math.inf, 1, ValueError), (-math.inf, 1, ValueError),
+            (1, math.inf, ValueError), (1, -math.inf, ValueError),
+            (1, True, ValueError), (True, 1, ValueError),
+        ]
+
+        self.single_input_error_cases: list[
+            tuple[float | int | bool | None,
+                  float | int | bool | None,
+                  type[Exception]]
+        ] = [
+            (None, None, ValueError), ('a', None, ValueError),
+            (True, None, ValueError), (False, None, ValueError),
+        ]
+
+        self.error_cases: dict[
+            str,
+            list[tuple[float | int | bool | None,
+                       float | int | bool | None,
+                       type[Exception]]]
+        ] = {
+            "add":  self.value_error_cases,
+            "sub":  self.value_error_cases,
+            "mul":  self.value_error_cases,
+            "div":  self.value_error_cases + [(5, 0, ZeroDivisionError)],
+            "pow":  self.value_error_cases,
+            "mod":  self.value_error_cases + [(5, 0, ZeroDivisionError)],
+            "sqrt": self.single_input_error_cases + [(5, 0, ValueError), (-5, 0, ValueError)],
+            "abs":  self.single_input_error_cases,
         }
 
     def _check_op(self, op: str) -> None:
@@ -151,7 +193,6 @@ class TestCalculator(unittest.TestCase):
     def test_pow_negative_base_fractional_exponent(self):
         with self.assertRaises(ValueError):
             self.calc.calculate("pow", -2, 0.5)
-
 
 
 class TestHistory(unittest.TestCase):
@@ -270,8 +311,7 @@ class TestHistory(unittest.TestCase):
                     path = Path(tmp) / "data.json"
                     path.write_text(bad_content, encoding="utf-8")
                     h = History()
-                    with patch("builtins.print"):
-                        self.assertIsNone(h.load(path))
+                    self.assertIsNone(h.load(path))
                     self.assertEqual(len(h), 0)
                     self.assertTrue(path.with_name(path.name + ".bak").exists())
                     self.assertFalse(path.exists())
@@ -282,11 +322,18 @@ class TestCalculatorApp(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.data_path = Path(self.tmpdir.name) / "test_data.json"
+        self.log_path = Path(self.tmpdir.name) / "test.log"
 
         self._orig_data_file = calculator.DATA_FILE
+        self._orig_log_file = calculator.LOG_FILE
         calculator.DATA_FILE = self.data_path
+        calculator.LOG_FILE = self.log_path
 
-        self.app = CalculatorApp()
+        # Remove existing handlers so __init__ re-creates them using our temp LOG_FILE
+        logger = logging.getLogger("calculator")
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+            handler.close()
 
         self.output_cases: dict[str, str] = {
             "add 4 5": "9",
@@ -350,34 +397,38 @@ class TestCalculatorApp(unittest.TestCase):
 
     def tearDown(self):
         calculator.DATA_FILE = self._orig_data_file
+        calculator.LOG_FILE = self._orig_log_file
         self.tmpdir.cleanup()
 
+    def _fresh_app(self) -> CalculatorApp:
+        """Create a new app on a clean data file."""
+        if self.data_path.exists():
+            self.data_path.unlink()
+        return CalculatorApp()
+
     def _run(self, cmd: str) -> str:
-        """Run one command and capture the printed output as a single string."""
-        with patch("builtins.print") as mock_print:
+        """Run one command and capture its logged output as a single string."""
+        with self.assertLogs(logger=self.app.logger, level="DEBUG") as cm:
             self.app.handle_command(cmd)
-        return "\n".join(
-            " ".join(str(a) for a in call.args)
-            for call in mock_print.call_args_list
-        )
+        return "\n".join(record.getMessage() for record in cm.records)
 
     def test_output(self):
         for cmd, expected in self.output_cases.items():
             with self.subTest(cmd=cmd):
-                self.app = CalculatorApp()
+                self.app = self._fresh_app()
                 self.assertEqual(self._run(cmd), expected)
 
     def test_raises(self):
         for cmd, exc in self.raised_cases.items():
             with self.subTest(cmd=cmd):
-                self.app = CalculatorApp()
+                self.app = self._fresh_app()
                 with self.assertRaises(exc):
                     self._run(cmd)
 
     def test_history_accumulates(self):
         for commands, expected_len in self.history_cases:
             with self.subTest(commands=commands):
-                self.app = CalculatorApp()
+                self.app = self._fresh_app()
                 for cmd in commands:
                     self._run(cmd)
                 self.assertEqual(len(self.app.history), expected_len)
@@ -385,7 +436,7 @@ class TestCalculatorApp(unittest.TestCase):
     def test_memory_flow(self):
         for commands, expected in self.memory_cases:
             with self.subTest(commands=commands):
-                self.app = CalculatorApp()
+                self.app = self._fresh_app()
                 for cmd in commands:
                     self._run(cmd)
                 self.assertEqual(self.app.memory, expected)
@@ -393,7 +444,7 @@ class TestCalculatorApp(unittest.TestCase):
     def test_last_substitution(self):
         for commands, expected in self.last_sub_cases:
             with self.subTest(commands=commands):
-                self.app = CalculatorApp()
+                self.app = self._fresh_app()
                 for cmd in commands:
                     self._run(cmd)
                 self.assertEqual(self.app.history.last_result(), expected)
@@ -401,12 +452,13 @@ class TestCalculatorApp(unittest.TestCase):
     def test_exit_sets_running_false(self):
         for cmd in ["exit", "quit", "EXIT", "QUIT"]:
             with self.subTest(cmd=cmd):
-                self.app = CalculatorApp()
+                self.app = self._fresh_app()
                 self.assertTrue(self.app.running)
                 self._run(cmd)
                 self.assertFalse(self.app.running)
 
     def test_saves_to_disk(self):
+        self.app = self._fresh_app()
         self.assertFalse(self.data_path.exists())
         self._run("add 4 5")
         self.assertTrue(self.data_path.exists())
