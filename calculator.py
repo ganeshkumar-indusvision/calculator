@@ -35,9 +35,8 @@ class Calculator:
         self._validate_input(*args)
         op = str(args[0])
         operands = [Decimal(str(v)) for v in args[1:] if v is not None]
-        _, func = self.operations[op]
-        return self._validate_output(func(*operands))
-
+        return self._validate_output(self.operations[op][1](*operands))
+    
     def _validate_output(self, result: Decimal) -> int | float:
         """Convert a whole Decimal to int, otherwise return float."""
         return int(result) if result == result.to_integral_value() else float(result)
