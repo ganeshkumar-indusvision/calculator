@@ -165,7 +165,15 @@ class History:
             for i, (op, operands, result) in enumerate(self._entries, start=1)
         )
 
-
+class JsonFormatter(logging.Formatter):
+    """Formats log records as JSON strings for the file."""
+    def format(self, record: logging.LogRecord) -> str:
+        return json.dumps({
+            "timestamp": self.formatTime(record, "%Y-%m-%d %H:%M:%S"),
+            "level": record.levelname,
+            "name": record.name,
+            "message": record.getMessage(),
+        })
 class CalculatorApp:
     """Reads commands from the user and prints results."""
 
@@ -176,26 +184,19 @@ class CalculatorApp:
         self.memory = None
         self.running = True
 
-        # logger setup — created per-instance, handlers added only once
-        self.logger = logging.getLogger(__name__)
+        # 1. Create a UNIQUE logger just for this object
+        self.logger = logging.getLogger(f"{__name__}.{id(self)}")
         self.logger.setLevel(logging.DEBUG)
-        if not self.logger.handlers:
-            console_handler = logging.StreamHandler()
-            console_handler.setFormatter(logging.Formatter("%(message)s"))
-            file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
-
-            class JsonFormatter(logging.Formatter):
-                def format(self, record: logging.LogRecord) -> str:
-                    return json.dumps({
-                        "timestamp": self.formatTime(record, "%Y-%m-%d %H:%M:%S"),
-                        "level": record.levelname,
-                        "name": record.name,
-                        "message": record.getMessage(),
-                    })
-
-            file_handler.setFormatter(JsonFormatter())
-            self.logger.addHandler(console_handler)
-            self.logger.addHandler(file_handler)
+        
+        # 2. No if statement needed! This logger is brand new and empty.
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(logging.Formatter("%(message)s"))
+        
+        file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+        file_handler.setFormatter(JsonFormatter())
+        
+        self.logger.addHandler(console_handler)
+        self.logger.addHandler(file_handler)
 
         self.command_info: dict[str, tuple[int, str, str]] = {
             "add": (2, "Add two numbers","\nExample: \n> add 1 3 \n> 4"),
@@ -231,59 +232,12 @@ class CalculatorApp:
         self.memory = self.history.load(DATA_FILE, on_warning=self.logger.warning)
         self.logger.info(f"Loaded {len(self.history)} past calculations from {DATA_FILE}")
         self.logger.info("Python Calculator — type 'help' for commands")
-
-    def handle_command(self, command: str) -> None:
-        """Parse and execute a single command."""
-        if not command:
-            self._help()
-            return
-
-        tokens = tuple(command.split())
-        if not self._validate_input(tokens):
-            return
-
-        op = tokens[0].lower()
-        args = tokens[1:]
-
-        # help accepts 0 or 1 argument (help / help <command>). Since
-        # command_info says 0, handle it before the generic arg-count check.
-        if op == "help":
-            if len(args) > 1:
-                self.logger.warning("help takes 0 or 1 arguments")
-                return
-            self._help(args[0].lower() if args else None)
-            return
-
-        expected = self.command_info[op][0]
-
-        # Check argument count against command_info
-        if len(args) != expected:
-            if expected == 0:
-                self.logger.warning(f"{op} takes no arguments")
-            else:
-                suffix = "number" if expected == 1 else "numbers"
-                self.logger.warning(f"{op} needs {expected} {suffix}")
-            return
-
-        # Non-arithmetic commands: help, history, stats, clear,
-        # ms, mr, mc, exit, quit
-        if op in self.app_handlers:
-            self.app_handlers[op]()
-            return
-
-        # Arithmetic commands
-        converted = self._convert_args(args)
-        if converted is None:
-            return
-
-        result = self.calculator.calculate(op, *converted)
-        self.logger.info("%s", result)
-
-        self.history.add(Calculation(op, converted, result))
-        try:
-            self.history.save(DATA_FILE, self.memory)
-        except OSError as e:
-            self.logger.warning(f"Warning: could not save history: {e}")
+    def __del__(self):
+        """Clean up logger handlers to prevent file descriptor leaks."""
+        if hasattr(self, 'logger'):
+            for handler in self.logger.handlers[:]:
+                self.logger.removeHandler(handler)
+                handler.close()
 
     def _exit(self) -> None:
         """Save state and stop the loop."""
@@ -397,6 +351,58 @@ class CalculatorApp:
         except OSError as e:
             self.logger.warning(f"Warning: could not save memory: {e}")
         self.logger.info("Memory cleared")
+    def handle_command(self, command: str) -> None:
+        """Parse and execute a single command."""
+        if not command:
+            self._help()
+            return
+
+        tokens = tuple(command.split())
+        if not self._validate_input(tokens):
+            return
+
+        op = tokens[0].lower()
+        args = tokens[1:]
+
+        # help accepts 0 or 1 argument (help / help <command>). Since
+        # command_info says 0, handle it before the generic arg-count check.
+        if op == "help":
+            if len(args) > 1:
+                self.logger.warning("help takes 0 or 1 arguments")
+                return
+            self._help(args[0].lower() if args else None)
+            return
+
+        expected = self.command_info[op][0]
+
+        # Check argument count against command_info
+        if len(args) != expected:
+            if expected == 0:
+                self.logger.warning(f"{op} takes no arguments")
+            else:
+                suffix = "number" if expected == 1 else "numbers"
+                self.logger.warning(f"{op} needs {expected} {suffix}")
+            return
+
+        # Non-arithmetic commands: help, history, stats, clear,
+        # ms, mr, mc, exit, quit
+        if op in self.app_handlers:
+            self.app_handlers[op]()
+            return
+
+        # Arithmetic commands
+        converted = self._convert_args(args)
+        if converted is None:
+            return
+
+        result = self.calculator.calculate(op, *converted)
+        self.logger.info("%s", result)
+
+        self.history.add(Calculation(op, converted, result))
+        try:
+            self.history.save(DATA_FILE, self.memory)
+        except OSError as e:
+            self.logger.warning(f"Warning: could not save history: {e}")
 
     def run(self) -> None:
         """Run the interactive input loop."""
