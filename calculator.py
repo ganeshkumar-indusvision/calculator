@@ -6,8 +6,8 @@ from collections import namedtuple
 from pathlib import Path
 from decimal import Decimal, ROUND_FLOOR, InvalidOperation
 
-DATA_FILE = Path("calculator_data.json")
-LOG_FILE = Path("calculator.log")
+DATA_FILE = Path("output/calculator_data.json")
+LOG_FILE = Path("logs/calculator.log")
 
 # Chosen because namedtuple gives us a free __repr__ that matches the
 # required format (Calculation(op='add', operands=(4, 5), result=9)),
@@ -41,7 +41,7 @@ class Calculator:
     
     def _validate_output(self, result: Decimal) -> int | float:
         """Convert a whole Decimal to int, otherwise return float."""
-        return int(result) if result == result.to_integral_value() else float(result)
+        return int(result) if result == result.to_integral_value() else round(float(result),3)
 
     def _validate_number(self, number: object) -> None:
         """Raise if number is not a finite int/float/Decimal (bool is rejected)."""
@@ -119,8 +119,13 @@ class History:
                 for c in self._entries
             ],
         }
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except FileNotFoundError:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
 
     def load(self, path: Path, on_warning: object = None) -> int | float | None:
         """Load history from a JSON file and return the saved memory value."""
@@ -192,7 +197,11 @@ class CalculatorApp:
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(logging.Formatter("%(message)s"))
         
-        file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+        try:
+            file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+        except FileNotFoundError:
+            LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
         file_handler.setFormatter(JsonFormatter())
         
         self.logger.addHandler(console_handler)
