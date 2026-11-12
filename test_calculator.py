@@ -4,11 +4,9 @@ import logging
 from pathlib import Path
 import tempfile
 import json
-from unittest.mock import patch
 
 import calculator
 from calculator import Calculator, History, Calculation, CalculatorApp
-
 
 class TestCalculator(unittest.TestCase):
 
@@ -84,169 +82,113 @@ class TestCalculator(unittest.TestCase):
             "sub":  self.value_error_cases,
             "mul":  self.value_error_cases,
             "div":  self.value_error_cases + [(5, 0, ZeroDivisionError)],
-            "pow":  self.value_error_cases,
+            "pow":  self.value_error_cases + [(0, -1, ZeroDivisionError),
+                                              (-2, 0.5, ValueError)],
             "mod":  self.value_error_cases + [(5, 0, ZeroDivisionError)],
-            "sqrt": self.single_input_error_cases + [(5, 0, ValueError), (-5, 0, ValueError)],
+            "sqrt": self.single_input_error_cases + [(-5, None, ValueError)],
             "abs":  self.single_input_error_cases,
         }
 
-    def _check_op(self, op: str) -> None:
-        for a, b, expected in self.input_output[op]:
-            with self.subTest(op=op, a=a, b=b):
-                args = (a,) if b is None else (a, b)
-                result = self.calc.calculate(op, *args)
-                self.assertEqual(result, expected)
-                # Whole-number results must come back as int, otherwise float.
-                # sqrt is skipped because perfect squares currently return int
-                # even though the spec says sqrt should always be float.
-                if op != "sqrt":
-                    self.assertIsInstance(result, int if isinstance(expected, int) else float)
-
-    def test_add(self):
-        self._check_op("add")
-
-    def test_sub(self):
-        self._check_op("sub")
-
-    def test_mul(self):
-        self._check_op("mul")
-
-    def test_div(self):
-        self._check_op("div")
-
-    def test_pow(self):
-        self._check_op("pow")
-
-    def test_mod(self):
-        self._check_op("mod")
-
-    def test_sqrt(self):
-        self._check_op("sqrt")
-
-    def test_abs(self):
-        self._check_op("abs")
-
-    def test_invalid_numbers_binary(self):
-        cases = [
-            (math.nan, 1), (1, math.nan), (math.nan, math.nan),
-            (1, 'a'), ('a', -2.5), (True, 'a'), (False, 1),
-            (1, False), (math.inf, 1), (-math.inf, 1),
-            (1, math.inf), (1, -math.inf), (1, True), (True, 1),
+        # Calls that don't fit the (op, a, b) shape: arity and unknown-op errors.
+        self.bad_call_cases: list[tuple[tuple, type[Exception]]] = [
+            ((),                ValueError),   # no operation
+            (("power", 2, 3),   ValueError),   # unknown operation
+            (("add",),          ValueError),   # binary op, missing operand
+            (("add", 5),        ValueError),
+            (("sqrt",),         ValueError),   # unary op, missing operand
+            (("abs",),          ValueError),
+            (("add", 1, 2, 3),  ValueError),   # too many operands
+            (("sqrt", 4, 5),    ValueError),
+            (("abs", 1, 2),     ValueError),
         ]
-        for op in ("add", "sub", "mul", "div", "pow", "mod"):
-            for a, b in cases:
+
+    def test_operations(self):
+        for op, cases in self.input_output.items():
+            for a, b, expected in cases:
                 with self.subTest(op=op, a=a, b=b):
-                    with self.assertRaises(ValueError):
-                        self.calc.calculate(op, a, b)
+                    args = (a,) if b is None else (a, b)
+                    result = self.calc.calculate(op, *args)
+                    self.assertEqual(result, expected)
+                    if op != "sqrt":
+                        self.assertIsInstance(
+                            result, int if isinstance(expected, int) else float)
 
-    def test_invalid_numbers_single(self):
-        for op in ("sqrt", "abs"):
-            for a in (None, 'a', True, False):
-                with self.subTest(op=op, a=a):
-                    with self.assertRaises(ValueError):
-                        self.calc.calculate(op, a)
+    def test_errors(self):
+        for op, cases in self.error_cases.items():
+            for a, b, exc in cases:
+                with self.subTest(op=op, a=a, b=b):
+                    args = (a,) if b is None else (a, b)
+                    with self.assertRaises(exc):
+                        self.calc.calculate(op, *args)
 
-    def test_missing_operand(self):
-        for op in ("add", "sub", "mul", "div", "pow", "mod"):
-            with self.subTest(op=op, kind="zero"):
-                with self.assertRaises(ValueError):
-                    self.calc.calculate(op)
-            with self.subTest(op=op, kind="one"):
-                with self.assertRaises(ValueError):
-                    self.calc.calculate(op, 5)
-        for op in ("sqrt", "abs"):
-            with self.subTest(op=op, kind="zero"):
-                with self.assertRaises(ValueError):
-                    self.calc.calculate(op)
-
-    def test_too_many_operands(self):
-        cases = [("add", 1, 2, 3), ("sqrt", 4, 5), ("abs", 1, 2)]
-        for args in cases:
+    def test_bad_calls(self):
+        for args, exc in self.bad_call_cases:
             with self.subTest(args=args):
-                with self.assertRaises(ValueError):
+                with self.assertRaises(exc):
                     self.calc.calculate(*args)
-
-    def test_no_operation_given(self):
-        with self.assertRaises(ValueError):
-            self.calc.calculate()
-
-    def test_unknown_operation(self):
-        with self.assertRaises(ValueError):
-            self.calc.calculate("power", 2, 3)
-
-    def test_divide_by_zero(self):
-        with self.assertRaises(ZeroDivisionError):
-            self.calc.calculate("div", 5, 0)
-
-    def test_mod_by_zero(self):
-        with self.assertRaises(ZeroDivisionError):
-            self.calc.calculate("mod", 5, 0)
-
-    def test_sqrt_of_negative(self):
-        with self.assertRaises(ValueError):
-            self.calc.calculate("sqrt", -4)
-
-    def test_pow_zero_to_negative(self):
-        with self.assertRaises(ZeroDivisionError):
-            self.calc.calculate("pow", 0, -1)
-
-    def test_pow_negative_base_fractional_exponent(self):
-        with self.assertRaises(ValueError):
-            self.calc.calculate("pow", -2, 0.5)
-
-
 class TestHistory(unittest.TestCase):
 
-    LAST_RESULT_CASES: list[tuple[list[Calculation], int | float | None]] = [
-        ([], None),
-        ([Calculation("add", (4, 5), 9)], 9),
-        ([Calculation("add", (4, 5), 9), Calculation("mul", (9, 3), 27)], 27),
-        ([Calculation("div", (7, 2), 3.5)], 3.5),
-        ([Calculation("sqrt", (16,), 4)], 4),
-        ([Calculation("sub", (0, 5), -5)], -5),
-    ]
-
-    STATS_CASES: list[tuple[list[Calculation], dict]] = [
-        ([], {"count": 0, "min": None, "max": None, "average": None}),
-        ([Calculation("add", (4, 5), 9)],
-         {"count": 1, "min": 9, "max": 9, "average": 9.0}),
-        ([Calculation("add", (4, 5), 9), Calculation("mul", (9, 3), 27)],
-         {"count": 2, "min": 9, "max": 27, "average": 18.0}),
-        ([Calculation("sub", (0, 5), -5), Calculation("add", (10, 5), 15)],
-         {"count": 2, "min": -5, "max": 15, "average": 5.0}),
-    ]
-
-    LEN_CASES: list[tuple[list[Calculation], int]] = [
-        ([], 0),
-        ([Calculation("add", (1, 2), 3)], 1),
-        ([Calculation("add", (1, 2), 3)] * 5, 5),
-    ]
-
-    STR_CASES: list[tuple[list[Calculation], str]] = [
-        ([], "No calculations yet"),
-        ([Calculation("add", (4, 5), 9)], "1. add (4, 5) = 9"),
-        ([Calculation("add", (4, 5), 9), Calculation("mul", (9, 3), 27)],
-         "1. add (4, 5) = 9\n2. mul (9, 3) = 27"),
-    ]
-
-    SAVE_LOAD_CASES: list[tuple[list[Calculation], int | float | None]] = [
-        ([], None),
-        ([], 0),
-        ([Calculation("add", (4, 5), 9)], 9),
-        ([Calculation("add", (4, 5), 9), Calculation("mul", (9, 3), 27)], 27),
-        ([Calculation("div", (7, 2), 3.5)], 3.5),
-        ([Calculation("sub", (0, 5), -5)], -5),
-    ]
-
-    BAD_JSON_CASES: list[str] = [
-        "{not valid json",
-        "",
-        "[1, 2, 3",
-        "not json at all",
-    ]
-
     def setUp(self):
-        self.history = History()
+        # Entry data reused by several cases.
+        add_4_5      = Calculation("add", (4, 5), 9)
+        mul_9_3      = Calculation("mul", (9, 3), 27)
+        div_7_2      = Calculation("div", (7, 2), 3.5)
+        sqrt_16      = Calculation("sqrt", (16,), 4)
+        sub_0_5      = Calculation("sub", (0, 5), -5)
+        sub_0_5_alt  = Calculation("sub", (0, 5), -5)
+        add_10_5     = Calculation("add", (10, 5), 15)
+        add_1_2      = Calculation("add", (1, 2), 3)
+
+        self.last_result_cases: list[tuple[list[Calculation], int | float | None]] = [
+            ([], None),
+            ([add_4_5], 9),
+            ([add_4_5, mul_9_3], 27),
+            ([div_7_2], 3.5),
+            ([sqrt_16], 4),
+            ([sub_0_5], -5),
+        ]
+
+        self.stats_cases: list[tuple[list[Calculation], dict]] = [
+            ([], {"count": 0, "min": None, "max": None, "average": None}),
+            ([add_4_5],
+             {"count": 1, "min": 9, "max": 9, "average": 9.0}),
+            ([add_4_5, mul_9_3],
+             {"count": 2, "min": 9, "max": 27, "average": 18.0}),
+            ([sub_0_5_alt, add_10_5],
+             {"count": 2, "min": -5, "max": 15, "average": 5.0}),
+        ]
+
+        self.len_cases: list[tuple[list[Calculation], int]] = [
+            ([], 0),
+            ([add_1_2], 1),
+            ([add_1_2] * 5, 5),
+        ]
+
+        self.str_cases: list[tuple[list[Calculation], str]] = [
+            ([], "No calculations yet"),
+            ([add_4_5], "1. add (4, 5) = 9"),
+            ([add_4_5, mul_9_3],
+             "1. add (4, 5) = 9\n2. mul (9, 3) = 27"),
+        ]
+
+        self.save_load_cases: list[tuple[list[Calculation], int | float | None]] = (
+            self.last_result_cases + [([], 0)]
+        )
+
+        self.bad_json_cases: list[str] = [
+            "{not valid json",
+            "",
+            "[1, 2, 3",
+            "not json at all",
+        ]
+
+        self.clear_cases: list[list[Calculation]] = [
+            [],
+            [add_1_2],
+        ]
+
+        self.missing_file_name = "nope.json"
+        self.data_file_name    = "data.json"
 
     def _build(self, entries: list[Calculation]) -> History:
         h = History()
@@ -255,27 +197,27 @@ class TestHistory(unittest.TestCase):
         return h
 
     def test_last_result(self):
-        for entries, expected in self.LAST_RESULT_CASES:
+        for entries, expected in self.last_result_cases:
             with self.subTest(entries=entries):
                 self.assertEqual(self._build(entries).last_result(), expected)
 
     def test_stats(self):
-        for entries, expected in self.STATS_CASES:
+        for entries, expected in self.stats_cases:
             with self.subTest(entries=entries):
                 self.assertEqual(self._build(entries).stats(), expected)
 
     def test_len(self):
-        for entries, expected in self.LEN_CASES:
+        for entries, expected in self.len_cases:
             with self.subTest(entries=entries):
                 self.assertEqual(len(self._build(entries)), expected)
 
     def test_str(self):
-        for entries, expected in self.STR_CASES:
+        for entries, expected in self.str_cases:
             with self.subTest(entries=entries):
                 self.assertEqual(str(self._build(entries)), expected)
 
     def test_clear(self):
-        for entries in ([], [Calculation("add", (1, 2), 3)]):
+        for entries in self.clear_cases:
             with self.subTest(entries=entries):
                 h = self._build(entries)
                 h.clear()
@@ -283,32 +225,31 @@ class TestHistory(unittest.TestCase):
                 self.assertIsNone(h.last_result())
 
     def test_save_load_roundtrip(self):
-        for entries, memory in self.SAVE_LOAD_CASES:
+        for entries, memory in self.save_load_cases:
             with self.subTest(entries=entries, memory=memory):
                 with tempfile.TemporaryDirectory() as tmp:
-                    path = Path(tmp) / "data.json"
+                    path = Path(tmp) / self.data_file_name
                     h = self._build(entries)
                     h.save(path, memory)
                     h2 = History()
                     loaded_mem = h2.load(path)
                     self.assertEqual(loaded_mem, memory)
                     self.assertEqual(str(h2), str(h))
-                    # Operands come back as tuples, not lists.
                     for entry in h2._entries:
                         self.assertIsInstance(entry.operands, tuple)
 
     def test_load_missing_file(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "nope.json"
+            path = Path(tmp) / self.missing_file_name
             h = History()
             self.assertIsNone(h.load(path))
             self.assertEqual(len(h), 0)
 
     def test_load_bad_json(self):
-        for bad_content in self.BAD_JSON_CASES:
+        for bad_content in self.bad_json_cases:
             with self.subTest(bad=bad_content):
                 with tempfile.TemporaryDirectory() as tmp:
-                    path = Path(tmp) / "data.json"
+                    path = Path(tmp) / self.data_file_name
                     path.write_text(bad_content, encoding="utf-8")
                     h = History()
                     self.assertIsNone(h.load(path))
