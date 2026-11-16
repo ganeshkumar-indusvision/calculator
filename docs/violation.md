@@ -106,3 +106,25 @@ After watching the video on variable storage in python, here is how it relates t
 - So when `json.dump` saves history to file, python converts tuple `(4, 5)` into json list `[4, 5]`.
 - When we load it back using `json.load()`, python gives it back as list, not tuple.
 - So in `History.load()` I explicitly convert it back using `tuple(item["operands"])` when creating Calculation object. That way in-memory entries and file-loaded entries both always use immutable tuples consistently.
+
+
+
+
+Majorly First iteration of Code I wrote which had multiple error handling and test case.
+
+
+
+⁠1. `Calculator()` and It's initial test case I wrote which took almost 3-4 hours on because there were many drawbacks I faced with maths calculation in python (even with before I just created bowler plate with AI but it was not good).
+2. Later Once basic manually wrote Initialising `Calculator()` in `CalculatorApp()`. Made basic `ctr + c`, `operation` cmd work correctly. 
+3. `History()` methods manually wrote which and made basic history read and write on file.
+4. Created Test function for both `CalculatorApp()` and `History()` with AI again it was not good just made sure all test case example writen manaully and tried to call those function and test it out.
+5. Took First review with sai. He pointed out many issues (example: code writing is not good it can be optimised further). 
+6. Fixed it with writing manually and again took small review with him.
+7. Final review was to use logger, some more small fixes with error handling was done with AI just to replace most of print statement present in `CalculatorApp()`.
+
+
+AI 
+
+1. Refactor and simple code refactor like changing print() to logger formate.
+2. Writting few test case calling function `CalculatorApp()` and `History()`  
+3. Refactor for creating `self.command_info` content for help command (Basicaly first 3,4 operation I manualy wrote)
