@@ -97,7 +97,26 @@ class TestCalculatorData():
 class ScientificCalculatorData(TestCalculatorData):
     def __init__(self):
         super().__init__()
-        
+        self.input_output.update({
+            "fact": [
+                (0,     None, ("fact", (1,                    False))),
+                (5,     None, ("fact", (120,                  False))),
+                (20,    None, ("fact", (2432902008176640000,  False))),
+                (41,    None, ("fact", (50,                   True))),   # first ≥ 50-digit
+                (50,    None, ("fact", (65,                   True))),
+            ],
+            "primes": [
+                (10,      None, ("primes", (7,       False), (4,     False))),
+                (200_000, None, ("primes", (199_999, False), (17_984,False))),
+            ],
+            "fib": [
+                (0,  None, ("fib", (0,    False))),
+                (6,  None, ("fib", (8,    False))),
+                (10, None, ("fib", (55,   False))),
+                (20, None, ("fib", (6765, False))),
+            ],
+        })
+
 
 
 

@@ -7,9 +7,6 @@ import json
 
 import calculator
 from task_runner import ScientificCalculator
-
-from test_calculator import TestCalculator as BaseTestCalculator
-
 from test_data import ScientificCalculatorData
 class TestCalculator(unittest.TestCase):
 
@@ -29,7 +26,7 @@ class TestCalculator(unittest.TestCase):
                     args = (a,) if b is None else (a, b)
                     result = self.calc.calculate(op, *args)
                     self.assertEqual(result, expected)
-                    if op != "sqrt":
+                    if op != "sqrt"  and isinstance(expected, (int, float)):
                         self.assertIsInstance(
                             result, int if isinstance(expected, int) else float)
 
@@ -48,6 +45,8 @@ class TestCalculator(unittest.TestCase):
                     self.calc.calculate(*args)
 
 if __name__ == "__main__":
-    # unittest.main()
-    sci=ScientificCalculator()
-    print(sci.calculate("fact",20))
+    unittest.main()
+    # sci=ScientificCalculator()
+    # print(sci.calculate("fact",199999))
+    # print(sci.calculate("fact",200000))
+    # print(sci.calculate("primes",200000))

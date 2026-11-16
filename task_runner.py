@@ -42,8 +42,10 @@ class ScientificCalculator(Calculator):
             return 0,None
         # threshold = num.sqrt().quantize(Decimal('1'), rounding=ROUND_DOWN)
         # prime.append(2)
+        num = int(num)
         prime = [True] * int(num+1)
         p = 2
+        length = 0
         while (p*p<=num):
             if prime[p]:
 
@@ -61,11 +63,11 @@ class ScientificCalculator(Calculator):
     def fibonacci(self, num: int) -> tuple[Decimal,None]: # Result, None
         if num < 0:
             raise ValueError("Factorial is not defined for negative numbers")
+        num = int(num)
         result = Decimal(str(0))
-        value = Decimal(str(0))
-        while(value <= num):
-            result += value
-            value +=1  
+        value = Decimal(str(1))
+        for _ in range(num):
+            result, value = value, result + value
         return result,None
 
     def _validate_digit_count(self,value: int|Decimal) -> tuple[int,bool] :
