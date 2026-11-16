@@ -92,3 +92,12 @@ class TestCalculatorData():
             (("sqrt", 4, 5),    ValueError),
             (("abs", 1, 2),     ValueError),
         ]
+
+
+class ScientificCalculatorData(TestCalculatorData):
+    def __init__(self):
+        super().__init__()
+        
+
+
+

@@ -75,17 +75,11 @@ class ScientificCalculator(Calculator):
 
     def _validate_scintific_output(self, op: str,*args: object) -> tuple:
         """Convert a whole Decimal to int, otherwise return float."""
-        result = tuple()
-        result = result + (op,)
-        if op=="prime":
-            for arg in args:
-                value = self._validate_digit_count(arg)
-                
-                result = result+(value,)
-            return result
-        value = self._validate_digit_count(arg[0])
-
-        return result+(value,)
+        raw = args[0]
+        if op=="primes":
+            # for arg in args:
+            return (op, *(self._validate_digit_count(value) for value in raw))
+        return (op, self._validate_digit_count(raw[0] ))
 
     def _validate_scintific_number(self, number: object) -> None:
         """Raise if number is not a finite int/float/Decimal (bool is rejected)."""
@@ -119,14 +113,15 @@ class ScientificCalculator(Calculator):
         if op == "fact":
             if operands[0]>= 200000:
                 raise ValueError(f"fact is limited to n ≤ 200000")
+        return True
         
     def calculate(self, *args: object) -> int | float:
         """Validate the request, run the operation, and return a clean result."""
-        if not self._validate_scintific_input(*args):
-            return super().calculate(*args)
-        op = str(args[0])
-        operands = [Decimal(str(v)) for v in args[1:] if v is not None]
-        return self._validate_scintific_output(op,self.operations[op][1](*operands))
+        if self._validate_scintific_input(*args):
+            op = str(args[0])
+            operands = [Decimal(str(v)) for v in args[1:] if v is not None]
+            return self._validate_scintific_output(op,self.operations[op][1](*operands))
+        return super().calculate(*args)
     
 
 class JobState(Enum):

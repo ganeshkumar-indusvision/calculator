@@ -10,12 +10,12 @@ from task_runner import ScientificCalculator
 
 from test_calculator import TestCalculator as BaseTestCalculator
 
-from test_data import TestCalculatorData
+from test_data import ScientificCalculatorData
 class TestCalculator(unittest.TestCase):
 
     def setUp(self):
         self.calc = ScientificCalculator()
-        self.data = TestCalculatorData()
+        self.data = ScientificCalculatorData()
         self.input_output = self.data.input_output
         self.value_error_cases = self.data.value_error_cases
         self.single_input_error_cases= self.data.single_input_error_cases
@@ -48,4 +48,6 @@ class TestCalculator(unittest.TestCase):
                     self.calc.calculate(*args)
 
 if __name__ == "__main__":
-    unittest.main()
+    # unittest.main()
+    sci=ScientificCalculator()
+    print(sci.calculate("fact",20))
