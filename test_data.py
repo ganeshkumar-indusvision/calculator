@@ -116,7 +116,19 @@ class ScientificCalculatorData(TestCalculatorData):
                 (20, None, ("fib", (6765, False))),
             ],
         })
+        self.single_input_error_cases.append = [
+        ]
+        self.value_error_cases.append = [
+        ]
 
+        self.single_input_error_cases.append = [
+        ]
+
+        self.error_cases.update={
+
+        }
+        self.bad_call_cases.append = [
+        ]
 
 
 
