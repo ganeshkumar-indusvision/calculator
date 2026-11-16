@@ -73,7 +73,7 @@ class ScientificCalculator(Calculator):
         result = lenght,True if lenght >= 50 else value,False
         return result
 
-    def _validate_output(self, op: str,*args: object) -> tuple:
+    def _validate_scintific_output(self, op: str,*args: object) -> tuple:
         """Convert a whole Decimal to int, otherwise return float."""
         result = tuple()
         result = result + (op,)
@@ -87,7 +87,7 @@ class ScientificCalculator(Calculator):
 
         return result+(value,)
 
-    def _validate_number(self, number: object) -> None:
+    def _validate_scintific_number(self, number: object) -> None:
         """Raise if number is not a finite int/float/Decimal (bool is rejected)."""
         if not isinstance(number, int) or isinstance(number, bool):
             raise ValueError(f"{number!r} is not a valid number")
@@ -95,7 +95,7 @@ class ScientificCalculator(Calculator):
             raise ValueError(f"{number!r} is not a finite number")
 
 
-    def _validate_input(self, *args: object) -> bool:
+    def _validate_scintific_input(self, *args: object) -> bool:
         """Validate an input request before running the operation."""
         if not args:
             raise ValueError("No operation given")
@@ -112,7 +112,7 @@ class ScientificCalculator(Calculator):
             raise ValueError(f"{op} takes exactly {n} argument{'s' if n != 1 else ''}")
 
         for v in operands:
-            self._validate_number(v)
+            self._validate_scintific_number(v)
 
         if operands[0] <0:
             raise ValueError(f"Value should be <= 0")
@@ -122,11 +122,11 @@ class ScientificCalculator(Calculator):
         
     def calculate(self, *args: object) -> int | float:
         """Validate the request, run the operation, and return a clean result."""
-        if not self._validate_input(*args):
+        if not self._validate_scintific_input(*args):
             return super().calculate(*args)
         op = str(args[0])
         operands = [Decimal(str(v)) for v in args[1:] if v is not None]
-        return self._validate_output(op,self.operations[op][1](*operands))
+        return self._validate_scintific_output(op,self.operations[op][1](*operands))
     
 
 class JobState(Enum):
