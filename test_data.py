@@ -115,20 +115,41 @@ class ScientificCalculatorData(TestCalculatorData):
                 (10, None, ("fib", (55,   False))),
                 (20, None, ("fib", (6765, False))),
             ],
+                })
+        self.error_cases.update({
+            "fact": [
+                (-1,       None, ValueError),   # negative
+                (True,     None, ValueError),   # bool
+                (5.0,      None, ValueError),   # float (only int accepted)
+                (None,     None, ValueError),   # None filtered → 0 operands → arity
+                ('a',      None, ValueError),   # str
+                (200_000,  None, ValueError),   # == limit
+                (200_001,  None, ValueError),   # > limit
+            ],
+            "primes": [
+                (-1,       None, ValueError),
+                (True,     None, ValueError),
+                (5.0,      None, ValueError),
+                (None,     None, ValueError),
+                ('a',      None, ValueError),
+            ],
+            "fib": [
+                (-1,       None, ValueError),
+                (True,     None, ValueError),
+                (5.0,      None, ValueError),
+                (None,     None, ValueError),
+                ('a',      None, ValueError),
+            ],
         })
-        self.single_input_error_cases.append = [
-        ]
-        self.value_error_cases.append = [
-        ]
-
-        self.single_input_error_cases.append = [
-        ]
-
-        self.error_cases.update={
-
-        }
-        self.bad_call_cases.append = [
-        ]
-
-
-
+        
+        self.bad_call_cases.extend([
+            (("fact",),         ValueError),   # missing operand
+            (("fact", 5, 6),    ValueError),   # too many operands
+            (("primes",),       ValueError),
+            (("primes", 10, 20), ValueError),
+            (("fib",),          ValueError),
+            (("fib", 6, 7),     ValueError),
+        ])
+        
+        
+        
