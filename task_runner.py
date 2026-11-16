@@ -30,18 +30,47 @@ class ScientificCalculator(Calculator):
 
 
 
-    def factorial(self, num: int) -> int: 
+    def factorial(self, num: int) -> tuple[Decimal,None]: # Result, None
         if num < 0:
             raise ValueError("Factorial is not defined for negative numbers")
-        result = Decimal(str(1))
+        fact = Decimal(str(1))
         value = Decimal(str(2))
         while(value <= num):
-            result *= value
+            fact *= value
             value +=1  
-        return result
-    def count_primes(self, n: int) -> tuple[int, int]: ...  # (count, largest)
-    def fibonacci(self, n: int) -> int: ...
+        return result,None
 
+
+    def count_primes(self, num: int) -> tuple[int, int]:  # (count, largest)
+        if num <= 1:
+            return 0,None
+        # threshold = num.sqrt().quantize(Decimal('1'), rounding=ROUND_DOWN)
+        # prime.append(2)
+        prime = [True] * int(num+1)
+        p = 2
+        while (p*p<=num):
+            if prime[p]:
+
+                for i in range(p*p,num+1,p):
+                    prime[i]=False
+
+            p+=1
+        for i in range(2,num+1,1):
+            if prime[i]:
+                last = i
+                length +=1 
+
+        return last,length
+
+    def fibonacci(self, num: int) -> tuple[Decimal,None]: # Result, None
+        if num < 0:
+            raise ValueError("Factorial is not defined for negative numbers")
+        result = Decimal(str(0))
+        value = Decimal(str(0))
+        while(value <= num):
+            result += value
+            value +=1  
+        return result,None
 
 
     def _validate_output(self, *args: object) -> object:
