@@ -9,6 +9,7 @@ from enum import Enum
 from pathlib import Path
 
 from calculator import Calculator, CalculatorApp, Calculation  # Project 1
+from decimal import Decimal, getcontext, MAX_EMAX, MIN_EMIN
 
 JOBS_FILE = Path("jobs.json")
 NUM_WORKERS = 3
@@ -19,13 +20,92 @@ class ScientificCalculator(Calculator):
 
     def __init__(self) -> None:
         super().__init__()
-        self.operations.update({"fact": self.factorial,
-                                "primes": self.count_primes,
-                                "fib": self.fibonacci})
+        self.operations.update({"fact": (1,self.factorial),
+                                "primes": (1,self.count_primes),
+                                "fib": (1,self.fibonacci)})
+        self.scientific_operations = {"fact","primes", "fib"}
+        getcontext().prec = 50
+        getcontext().Emax = MAX_EMAX
+        getcontext().Emin = MIN_EMIN
 
-    def factorial(self, n: int) -> int: ...
+
+
+    def factorial(self, num: int) -> int: 
+        if num < 0:
+            raise ValueError("Factorial is not defined for negative numbers")
+        result = Decimal(str(1))
+        value = Decimal(str(2))
+        while(value <= num):
+            result *= value
+            value +=1  
+        return result
     def count_primes(self, n: int) -> tuple[int, int]: ...  # (count, largest)
     def fibonacci(self, n: int) -> int: ...
+
+
+
+    def _validate_output(self, *args: object) -> object:
+        """Convert a whole Decimal to int, otherwise return float."""
+        if args=="prime":
+            args
+        lenght =  value.adjusted()+ 1
+        result = lenght if lenght >= 50 else value  
+        return int(result) if result == result.to_integral_value() else round(float(result),3)
+
+
+    def _validate_number(self, number: object) -> None:
+        """Raise if number is not a finite int/float/Decimal (bool is rejected)."""
+        if not isinstance(number, int) or isinstance(number, bool):
+            raise ValueError(f"{number!r} is not a valid number")
+        if not Decimal(str(number)).is_finite():
+            raise ValueError(f"{number!r} is not a finite number")
+
+
+    def _validate_input(self, *args: object) -> bool:
+        """Validate an input request before running the operation."""
+        if not args:
+            raise ValueError("No operation given")
+
+        op = args[0]
+        if not isinstance(op, str) or op not in self.scientific_operations:
+            if op not in self.operations:
+                raise ValueError(f"Unknown operation: {op}")
+            return False
+
+        operands = [v for v in args[1:] if v is not None]
+        n, _ = self.operations[op]
+        if len(operands) != n:
+            raise ValueError(f"{op} takes exactly {n} argument{'s' if n != 1 else ''}")
+
+        for v in operands:
+            self._validate_number(v)
+
+        if operands[0] <0:
+            raise ValueError(f"Value should be <= 0")
+        if op == "fact":
+            if operands[0]>= 200000:
+                raise ValueError(f"fact is limited to n ≤ 200000")
+        
+    def calculate(self, *args: object) -> int | float:
+        """Validate the request, run the operation, and return a clean result."""
+        if not self._validate_input(*args):
+            return super().calculate(*args)
+        op = str(args[0])
+        operands = [Decimal(str(v)) for v in args[1:] if v is not None]
+        return self._validate_output(self.operations[op][1](*operands))
+    
+
+
+
+
+if __name__ == "__main__":
+    getcontext().prec = 50
+    getcontext().Emax = MAX_EMAX
+    getcontext().Emin = MIN_EMIN
+    value = factorial(Decimal(str(50000)))
+    lenght =  value.adjusted()+ 1
+    result = lenght if lenght >= 50 else value  
+    print(result)
 
 
 class JobState(Enum):
