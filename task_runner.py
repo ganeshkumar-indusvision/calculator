@@ -34,7 +34,7 @@ class ScientificCalculator(Calculator):
         while(value <= num):
             fact *= value
             value +=1  
-        return fact,None
+        return (fact,None,)
 
 
     def count_primes(self, num: int) -> tuple[int, int]:  # (count, largest)
@@ -70,7 +70,7 @@ class ScientificCalculator(Calculator):
 
     def _validate_digit_count(self,value: int|Decimal) -> tuple[int,bool] :
         lenght =  value.adjusted()+ 1
-        result = lenght,True if lenght >= 50 else value,False
+        result = (lenght,True,) if lenght >= 50 else (int(value),False,)
         return result
 
     def _validate_scintific_output(self, op: str,*args: object) -> tuple:
