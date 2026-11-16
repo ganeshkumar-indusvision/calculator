@@ -1,17 +1,13 @@
-from calculator import Calculator, History, Calculation, CalculatorApp
-
-
-# task_runner.py
 import threading
 import queue
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from calculator import Calculator, CalculatorApp, Calculation  # Project 1
+from calculator import Calculator, History, Calculation, CalculatorApp
 from decimal import Decimal, getcontext, MAX_EMAX, MIN_EMIN
 
-JOBS_FILE = Path("jobs.json")
+JOBS_FILE = Path("output/jobs.json")
 NUM_WORKERS = 3
 
 
@@ -38,7 +34,7 @@ class ScientificCalculator(Calculator):
         while(value <= num):
             fact *= value
             value +=1  
-        return result,None
+        return fact,None
 
 
     def count_primes(self, num: int) -> tuple[int, int]:  # (count, largest)
@@ -60,7 +56,7 @@ class ScientificCalculator(Calculator):
                 last = i
                 length +=1 
 
-        return last,length
+        return Decimal(str(last)), Decimal(str(length))
 
     def fibonacci(self, num: int) -> tuple[Decimal,None]: # Result, None
         if num < 0:
@@ -72,15 +68,24 @@ class ScientificCalculator(Calculator):
             value +=1  
         return result,None
 
-
-    def _validate_output(self, *args: object) -> object:
-        """Convert a whole Decimal to int, otherwise return float."""
-        if args=="prime":
-            args
+    def _validate_digit_count(self,value: int|Decimal) -> tuple[int,bool] :
         lenght =  value.adjusted()+ 1
-        result = lenght if lenght >= 50 else value  
-        return int(result) if result == result.to_integral_value() else round(float(result),3)
+        result = lenght,True if lenght >= 50 else value,False
+        return result
 
+    def _validate_output(self, op: str,*args: object) -> tuple:
+        """Convert a whole Decimal to int, otherwise return float."""
+        result = tuple()
+        result = result + (op,)
+        if op=="prime":
+            for arg in args:
+                value = self._validate_digit_count(arg)
+                
+                result = result+(value,)
+            return result
+        value = self._validate_digit_count(arg[0])
+
+        return result+(value,)
 
     def _validate_number(self, number: object) -> None:
         """Raise if number is not a finite int/float/Decimal (bool is rejected)."""
@@ -121,21 +126,8 @@ class ScientificCalculator(Calculator):
             return super().calculate(*args)
         op = str(args[0])
         operands = [Decimal(str(v)) for v in args[1:] if v is not None]
-        return self._validate_output(self.operations[op][1](*operands))
+        return self._validate_output(op,self.operations[op][1](*operands))
     
-
-
-
-
-if __name__ == "__main__":
-    getcontext().prec = 50
-    getcontext().Emax = MAX_EMAX
-    getcontext().Emin = MIN_EMIN
-    value = factorial(Decimal(str(50000)))
-    lenght =  value.adjusted()+ 1
-    result = lenght if lenght >= 50 else value  
-    print(result)
-
 
 class JobState(Enum):
     QUEUED = "queued"
