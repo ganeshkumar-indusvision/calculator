@@ -20,6 +20,8 @@ class ScientificCalculator(Calculator):
                                 "primes": (1,self.count_primes),
                                 "fib": (1,self.fibonacci)})
         self.scientific_operations = {"fact","primes", "fib"}
+
+        # Decimal datatype functions to keep precision.
         getcontext().prec = 50
         getcontext().Emax = MAX_EMAX
         getcontext().Emin = MIN_EMIN
