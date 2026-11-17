@@ -186,10 +186,10 @@ class JobManager:
         with self.lock:
             if job_id not in self.jobs:
                 return
-            job = self.job[job_id]
+            job = self.jobs[job_id]
             job.state = JobState.DONE
             job.finished_at = time.time()
-
+            job.result = result
             self.history.add(Calculation(job.command,job.operands, result))
             self.save()
 
@@ -218,7 +218,7 @@ class JobManager:
             "id": j.id,
             "command": j.command,
             "operands":j.operands,
-            "state":j.state,
+            "state":j.state.value,
             "result":j.result,
             "error":j.error,
             "started_at":j.started_at,
@@ -309,6 +309,7 @@ class Worker:
             try:
                 result = self.manager.calculator.calculate(job.command, *job.operands)
                 self.manager.finish(job_id, result)
+
                 duration = job.duration or 0.0
                 # print("Total Duration: {duration}")
             finally:
