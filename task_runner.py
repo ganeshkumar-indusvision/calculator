@@ -149,6 +149,9 @@ class Job:
     started_at: float | None = None
     finished_at: float | None = None
 
+class JobNotFoundError(Exception):
+    """Raised when querying a job id that does not exist."""
+    pass
 
 class JobManager:
     """Owns jobs, the queue, the lock and saving. Safe to call from any thread."""
@@ -170,14 +173,14 @@ class JobManager:
             self._next_id +=1
             job = Job(id=job_id,command=command,operands=tuple(operands))
             self.jobs[job_id]= job
-            self.queue.put(job_id)
+            self.queue.put(job_id)# Queue adding (publisher point)
             self.save()
             return job_id 
 
     def get(self, job_id: int) -> Job: 
         with self.lock:
             if job_id not in self.jobs:
-                raise ValueError(f"No Jobs with id{job_id}")
+                raise JobNotFoundError(f"No Jobs with id{job_id}")
             return self.jobs[job_id]
     def finish(self, job_id: int, result: object) -> None:
         with self.lock:
@@ -240,22 +243,20 @@ class JobManager:
             back_file = self.jobs_file.with_name(self.jobs_file.name + ".bak")
             try:
                 os.replace(self.jobs_file,back_file)
-                msg = f"Warning: {self.jobs_file} was not valid JSON. Renamed to {bak_file.name}."
+                msg = f"Warning: {self.jobs_file} was not valid JSON. Renamed to {back_file.name}."
             except OSError:
                 msg = f"Warning: could not read {self.jobs_file}. Starting empty."
                 if callable(on_warning):
                     on_warning(msg)
                 return
-            with self.lock:
-                for _,item in data.items():
-                    state = JobState(item["state"])
-                    error = item.get("error")
-
-                    if state in (JobState.QUEUED, JobState.RUNNING):
-                        state = JobState.FAILED
-                        error = "Interuped"
-
-                        # id: int
+        with self.lock:
+            for _,item in data.items():
+                state = JobState(item["state"])
+                error = item.get("error")
+                if state in (JobState.QUEUED, JobState.RUNNING):
+                    state = JobState.FAILED
+                    error = "Interuped"
+                    # id: int
     # command: str
     # operands: tuple
     # state: JobState = JobState.QUEUED # By default we will be storing value as queued until worker marks it as running, fialed
@@ -264,18 +265,17 @@ class JobManager:
     # started_at: float | None = None
     # finished_at: float | None = None
 
-                    job = Job(
-                        id = item["id"],
-                        command= item["command"],
-                        operands= item["operands"],
-                        state= item["state"],
-                        result= item["result"],
-                        error = item["error"],
-                        started_at=item["started_at"],
-                        finished_at=item["finished_at"],
-
-                    )
-                    self.jobs[job.id] = job
+                job = Job(
+                    id = item["id"],
+                    command= item["command"],
+                    operands= item["operands"],
+                    state= state,
+                    result= item["result"],
+                    error = error,
+                    started_at=item["started_at"],
+                    finished_at=item["finished_at"],
+                )
+                self.jobs[job.id] = job
                 if self.jobs:
                     self._next_id=max(self.jobs.keys())+1
 
@@ -292,6 +292,30 @@ class Worker:
         # Hint: queue.get(timeout=0.5) lets the thread check
         # stop_event regularly instead of blocking forever.
         ...
+        while not self.manager.stop_event.is_set():
+            try:
+                job_id = self.manager.queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            with self.manager.lock:
+                if job_id not in self.manager.jobs:
+                    self.manager.queue.task_done()
+                    continue
+                job=self.manager.jobs[job_id]
+                job.state=JobState.RUNNING
+                job.started_at = time.time()
+                self.current_job = job_id
+                self.manager.save()
+            try:
+                result = self.manager.calculator.calculate(job.command, *job.operands)
+                self.manager.finish(job_id, result)
+                duration = job.duration or 0.0
+                # print("Total Duration: {duration}")
+            finally:
+                with self.manager.lock:
+                    self.current_job = None
+                self.manager.queue.task_done()
+
 
 
 class TaskRunnerApp(CalculatorApp):
