@@ -334,4 +334,5 @@ class TaskRunnerApp(CalculatorApp):
 
 
 if __name__ == "__main__":
-    TaskRunnerApp().run()
+    # TaskRunnerApp().run()
+    print("Go Home")
