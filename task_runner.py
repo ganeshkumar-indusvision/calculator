@@ -6,6 +6,9 @@ from pathlib import Path
 
 from calculator import Calculator, History, Calculation, CalculatorApp
 from decimal import Decimal, getcontext, MAX_EMAX, MIN_EMIN
+import json
+import time
+import os
 
 JOBS_FILE = Path("output/jobs.json")
 NUM_WORKERS = 3
@@ -39,7 +42,7 @@ class ScientificCalculator(Calculator):
         return (fact,None,)
 
 
-    def count_primes(self, num: int) -> tuple[int, int]:  # (count, largest)
+    def count_primes(self, num: Decimal) -> tuple[Decimal, Decimal]:  # (count, largest)
         if num <= 1:
             return 0,None
         # threshold = num.sqrt().quantize(Decimal('1'), rounding=ROUND_DOWN)
@@ -140,27 +143,93 @@ class Job:
     id: int
     command: str
     operands: tuple
-    state: JobState = JobState.QUEUED
+    state: JobState = JobState.QUEUED # By default we will be storing value as queued until worker marks it as running, fialed
     result: object = None
     error: str | None = None
+    started_at: float | None = None
+    finished_at: float | None = None
 
 
 class JobManager:
     """Owns jobs, the queue, the lock and saving. Safe to call from any thread."""
 
-    def __init__(self, calculator: ScientificCalculator, history) -> None:
+    def __init__(self, calculator: ScientificCalculator, history: History, jobs_file: Path= JOBS_FILE) -> None:
         self.calculator = calculator
         self.history = history           # Project 1's History, now shared
         self.jobs: dict[int, Job] = {}
         self.queue: queue.Queue[int] = queue.Queue()
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
+        self._next_id: int = 1
+        self.jobs_file = jobs_file
 
-    def submit(self, command: str, operands: tuple) -> int: ...
-    def get(self, job_id: int) -> Job: ...
-    def finish(self, job_id: int, result: object) -> None: ...  # also adds to history
-    def fail(self, job_id: int, error: str) -> None: ...
-    def save(self) -> None: ...
+    def submit(self, command: str, operands: tuple) -> int:
+        # Here, lock needed because there is Read and write operation
+        with self.lock():
+            job_id = self._next_id
+            self._next_id +=1
+            job = Job(id=job_id,command=command,operands=tuple(operands))
+            self.jobs[job_id]= job
+            self.queue.put(job_id)
+            self.save()
+            return job_id 
+
+    def get(self, job_id: int) -> Job: 
+        with self.lock():
+            if job_id not in self.jobs:
+                raise ValueError(f"No Jobs with id{job_id}")
+            return self.jobs[job_id]
+    def finish(self, job_id: int, result: object) -> None:
+        with self.lock():
+            if job_id not in self.jobs:
+                return
+            job = self.job[job_id]
+            job.state = JobState.DONE
+            job.finished_at = time.time()
+
+            self.history.add(Calculation(job.command,job.operands, result))
+            self.save()
+
+    def fail(self, job_id: int, error: str) -> None: 
+        with self.lock():
+            if job_id not in self.jobs:
+                return      
+            job = self.jobs[job_id]
+            job.state = JobState.FAILED
+            job.finished_at = time.time()
+            job.error = error
+            self.save()
+    def save(self) -> None: 
+
+    #     class Job:
+    # id: int
+    # command: str
+    # operands: tuple
+    # state: JobState = JobState.QUEUED # By default we will be storing value as queued until worker marks it as running, fialed
+    # result: object = None
+    # error: str | None = None
+    # started_at: float | None = None
+    # finished_at: float | None = None
+
+        data = {str(jid):{
+            "id": j.id,
+            "command": j.command,
+            "operands":j.operands,
+            "state":j.state,
+            "result":j.result,
+            "error":j.error,
+            "started_at":j.started_at,
+            "finished_at":j.finished_at,
+
+          }
+          for jid,j in self.jobs.items()
+        }
+        self.jobs_file.parent.mkdir(parents= True,exist_ok=True)
+        temp_file = self.jobs_file.with_name(self.jobs_file.name + ".tmp")
+        with open(temp_file ,"w",encoding="utf-8") as f:
+            json.dump(data,f,indent=2)
+        os.replace(temp_file,self.jobs_file)
+
     def load(self) -> None: ...
 
 
