@@ -312,6 +312,8 @@ class Worker:
 
                 duration = job.duration or 0.0
                 # print("Total Duration: {duration}")
+            except Exception as e:
+                self.manager.fail(job_id, str(e))  
             finally:
                 with self.manager.lock:
                     self.current_job = None
