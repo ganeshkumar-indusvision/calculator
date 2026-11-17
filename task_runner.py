@@ -165,7 +165,7 @@ class JobManager:
 
     def submit(self, command: str, operands: tuple) -> int:
         # Here, lock needed because there is Read and write operation
-        with self.lock():
+        with self.lock:
             job_id = self._next_id
             self._next_id +=1
             job = Job(id=job_id,command=command,operands=tuple(operands))
@@ -175,12 +175,12 @@ class JobManager:
             return job_id 
 
     def get(self, job_id: int) -> Job: 
-        with self.lock():
+        with self.lock:
             if job_id not in self.jobs:
                 raise ValueError(f"No Jobs with id{job_id}")
             return self.jobs[job_id]
     def finish(self, job_id: int, result: object) -> None:
-        with self.lock():
+        with self.lock:
             if job_id not in self.jobs:
                 return
             job = self.job[job_id]
@@ -191,7 +191,7 @@ class JobManager:
             self.save()
 
     def fail(self, job_id: int, error: str) -> None: 
-        with self.lock():
+        with self.lock:
             if job_id not in self.jobs:
                 return      
             job = self.jobs[job_id]
