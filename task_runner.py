@@ -149,6 +149,11 @@ class Job:
     started_at: float | None = None
     finished_at: float | None = None
 
+    @property
+    def duration(self) -> float | None:
+        if self.started_at is not None and self.finished_at is not None:
+            return self.finished_at - self.started_at
+
 class JobNotFoundError(Exception):
     """Raised when querying a job id that does not exist."""
     pass
@@ -291,7 +296,6 @@ class Worker:
     def _loop(self) -> None:
         # Hint: queue.get(timeout=0.5) lets the thread check
         # stop_event regularly instead of blocking forever.
-        ...
         while not self.manager.stop_event.is_set():
             try:
                 job_id = self.manager.queue.get(timeout=0.5)
