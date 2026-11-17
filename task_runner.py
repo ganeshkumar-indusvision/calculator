@@ -230,7 +230,54 @@ class JobManager:
             json.dump(data,f,indent=2)
         os.replace(temp_file,self.jobs_file)
 
-    def load(self) -> None: ...
+    def load(self,on_warning: object = None) -> None: 
+        if not self.jobs_file.exists():
+            return
+        try:
+            with open(self.jobs_file,"r",encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            back_file = self.jobs_file.with_name(self.jobs_file.name + ".bak")
+            try:
+                os.replace(self.jobs_file,back_file)
+                msg = f"Warning: {self.jobs_file} was not valid JSON. Renamed to {bak_file.name}."
+            except OSError:
+                msg = f"Warning: could not read {self.jobs_file}. Starting empty."
+                if callable(on_warning):
+                    on_warning(msg)
+                return
+            with self.lock:
+                for _,item in data.items():
+                    state = JobState(item["state"])
+                    error = item.get("error")
+
+                    if state in (JobState.QUEUED, JobState.RUNNING):
+                        state = JobState.FAILED
+                        error = "Interuped"
+
+                        # id: int
+    # command: str
+    # operands: tuple
+    # state: JobState = JobState.QUEUED # By default we will be storing value as queued until worker marks it as running, fialed
+    # result: object = None
+    # error: str | None = None
+    # started_at: float | None = None
+    # finished_at: float | None = None
+
+                    job = Job(
+                        id = item["id"],
+                        command= item["command"],
+                        operands= item["operands"],
+                        state= item["state"],
+                        result= item["result"],
+                        error = item["error"],
+                        started_at=item["started_at"],
+                        finished_at=item["finished_at"],
+
+                    )
+                    self.jobs[job.id] = job
+                if self.jobs:
+                    self._next_id=max(self.jobs.keys())+1
 
 
 class Worker:
