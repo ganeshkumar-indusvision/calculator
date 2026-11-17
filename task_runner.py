@@ -44,7 +44,7 @@ class ScientificCalculator(Calculator):
 
     def count_primes(self, num: Decimal) -> tuple[Decimal, Decimal]:  # (count, largest)
         if num <= 1:
-            return 0,None
+            return Decimal('0'), Decimal('0')  
         # threshold = num.sqrt().quantize(Decimal('1'), rounding=ROUND_DOWN)
         # prime.append(2)
         num = int(num)
@@ -317,7 +317,8 @@ class Worker:
                 duration = job.duration or 0.0
                 # print("Total Duration: {duration}")
             except Exception as e:
-                self.manager.fail(job_id, str(e))  
+                print(f"[worker] job {job_id} ({job.command} {job.operands}) FAILED: "f"{type(e).__name__}: {e}")
+                self.manager.fail(job_id, str(e))
             finally:
                 with self.manager.lock:
                     self.current_job = None

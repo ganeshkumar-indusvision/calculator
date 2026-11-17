@@ -1,33 +1,34 @@
 import time
+from pathlib import Path
 from calculator import History
-from task_runner import JobManager, Worker, ScientificCalculator
+from task_runner import JobManager, Worker, ScientificCalculator, JobState
 
-# 1. Build the pieces
-calc    = ScientificCalculator()      # has add, sub, ..., fact, primes, fib
-history = History()                    # shared history
-manager = JobManager(calc, history)    # the "kitchen counter"
+calc    = ScientificCalculator()
+history = History()
+manager = JobManager(calc, history, jobs_file=Path("/tmp/jobs_diag.json"))
 
-# 2. Build ONE worker and START it
-worker = Worker("worker-1", manager)   # creates a Thread object — NOT running yet
-worker.thread.start()                  # NOW the _loop() begins running in the background
+worker = Worker("worker-1", manager)
+worker.thread.start()
 
-# 3. Submit a job (main thread)
-job_id = manager.submit("add", (4, 5))
-print(f"main: submitted job {job_id}")     # id = 1
+for i in range(61001):
+    manager.submit("primes", (i, None))
+print("main: 5 jobs submitted")
 
-# 4. Wait for the worker to actually process it
-#    queue.join() blocks until every task_done() has been called
 manager.queue.join()
-print("main: all jobs processed")
+print("main: all jobs processed\n")
 
-# 5. Read the result
-job = manager.get(job_id)
-print(f"main: state    = {job.state}")
-print(f"main: result   = {job.result}")
-print(f"main: duration = {job.duration:.4f}s")
-print(f"main: history  = {len(history)} entries, last={history.last_result()}")
+for jid in range(1, 61000):
+    j = manager.get(jid)
+    dur = f"{j.duration:.4f}s" if j.duration is not None else "None"
+    print(f"job {jid}  {j.command:7} {str(j.operands):12}  "
+          f"state={j.state.value:8}  "
+          f"result={j.result}  "
+          f"error={j.error!r}  "
+          f"duration={dur}")
 
-# 6. Shut the worker down (2-step: signal, then join)
-manager.stop_event.set()               # worker's while-loop sees this on next pass
-worker.thread.join(timeout=2.0)        # wait for the thread to finish
-print("main: worker stopped, bye")
+print(f"\nhistory: {len(history)} entries")
+print(f"last_result: {history.last_result()}")
+
+manager.stop_event.set()
+worker.thread.join(timeout=2.0)
+print("\nmain: worker stopped, bye")
