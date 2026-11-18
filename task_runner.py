@@ -3,8 +3,8 @@ import queue
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-
-from calculator import Calculator, History, Calculation, CalculatorApp
+import logging
+from calculator import Calculator, History, Calculation, CalculatorApp,JsonFormatter
 from decimal import Decimal, getcontext, MAX_EMAX, MIN_EMIN
 import json
 import time
@@ -12,6 +12,8 @@ import os
 
 JOBS_FILE = Path("output/jobs.json")
 NUM_WORKERS = 3
+
+
 
 
 class ScientificCalculator(Calculator):
@@ -170,7 +172,21 @@ class JobManager:
         self.stop_event = threading.Event()
         self._next_id: int = 1
         self.jobs_file = jobs_file
-
+        self._worker_logger_init()
+    
+    def _worker_logger_init(self) -> None:
+        self.logger = logging.getLogger("runner")
+        self.logger.setLevel(logging.DEBUG)
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(logging.Formatter("%(message)s"))
+        try:
+            file_handler = logging.FileHandler(JOBS_FILE, mode="a", encoding="utf-8")
+        except FileNotFoundError:
+            JOBS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = logging.FileHandler(JOBS_FILE, mode="a", encoding="utf-8")
+        file_handler.setFormatter(JsonFormatter())
+        self.logger.addHandler(console_handler)
+        self.logger.addHandler(file_handler)
     def submit(self, command: str, operands: tuple) -> int:
         # Here, lock needed because there is Read and write operation
         with self.lock:
@@ -208,17 +224,6 @@ class JobManager:
             job.error = error
             self.save()
     def save(self) -> None: 
-
-    #     class Job:
-    # id: int
-    # command: str
-    # operands: tuple
-    # state: JobState = JobState.QUEUED # By default we will be storing value as queued until worker marks it as running, fialed
-    # result: object = None
-    # error: str | None = None
-    # started_at: float | None = None
-    # finished_at: float | None = None
-
         data = {str(jid):{
             "id": j.id,
             "command": j.command,
@@ -228,7 +233,6 @@ class JobManager:
             "error":j.error,
             "started_at":j.started_at,
             "finished_at":j.finished_at,
-
           }
           for jid,j in self.jobs.items()
         }
@@ -261,15 +265,6 @@ class JobManager:
                 if state in (JobState.QUEUED, JobState.RUNNING):
                     state = JobState.FAILED
                     error = "Interuped"
-                    # id: int
-    # command: str
-    # operands: tuple
-    # state: JobState = JobState.QUEUED # By default we will be storing value as queued until worker marks it as running, fialed
-    # result: object = None
-    # error: str | None = None
-    # started_at: float | None = None
-    # finished_at: float | None = None
-
                 job = Job(
                     id = item["id"],
                     command= item["command"],
@@ -331,11 +326,30 @@ class TaskRunnerApp(CalculatorApp):
 
     def __init__(self) -> None:
         super().__init__()
+        self._worker_logger_init()
         self.calculator = ScientificCalculator()
         self.manager = JobManager(self.calculator, self.history)
         self.workers = [Worker(f"worker-{i}", self.manager)
                         for i in range(1, NUM_WORKERS + 1)]
-        # TODO: add submit, batch, jobs, result, workers to the command dict
+
+        self.command_info.update({
+            "fact": (1, "Calculate factorial of n", "\nExample: \n> fact 5 \n> 120"),
+            "primes": (1, "Count primes <= n and largest prime", "\nExample: \n> primes 10 \n> 4 primes, largest 7"),
+            "fib": (1, "Calculate nth Fibonacci number", "\nExample: \n> fib 10 \n> 55"),
+            "submit": (1, "Submit a calculation as background job", "\nExample: \n> submit primes 2000000 \n> Job 1 queued"),
+            "batch": (1, "Submit calculations from a file", "\nExample: \n> batch sums.txt \n> Queued 4 jobs"),
+            "jobs": (0, "List all background jobs", "\nExample: \n> jobs \n> Displays all jobs"),
+            "result": (1, "Show the result of a background job", "\nExample: \n> result 1 \n> Shows job result"),
+            "workers": (0, "Show status of worker threads", "\nExample: \n> workers \n> Displays worker status"),
+        })
+
+        # self.app_handlers.update({
+        #     "jobs": self._jobs_cmd,
+        #     "workers": self._workers_cmd,
+        # })
+
+    
+        def run()
 
 
 if __name__ == "__main__":

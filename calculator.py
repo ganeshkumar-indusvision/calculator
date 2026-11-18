@@ -190,22 +190,6 @@ class CalculatorApp:
         self.running = True
 
         # 1. Create a UNIQUE logger just for this object
-        self.logger = logging.getLogger(f"{__name__}.{id(self)}")
-        self.logger.setLevel(logging.DEBUG)
-        
-        # 2. No if statement needed! This logger is brand new and empty.
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(logging.Formatter("%(message)s"))
-        
-        try:
-            file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
-        except FileNotFoundError:
-            LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-            file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
-        file_handler.setFormatter(JsonFormatter())
-        
-        self.logger.addHandler(console_handler)
-        self.logger.addHandler(file_handler)
 
         self.command_info: dict[str, tuple[int, str, str]] = {
             "add": (2, "Add two numbers","\nExample: \n> add 1 3 \n> 4"),
@@ -237,9 +221,27 @@ class CalculatorApp:
             "exit": self._exit,
             "quit": self._exit,
         }
+        self._calculator_logger_init()
 
-        self.memory = self.history.load(DATA_FILE, on_warning=self.logger.warning)
-        self.logger.info(f"Loaded {len(self.history)} past calculations from {DATA_FILE}")
+
+    # Violation: Moved to method to have simple init block
+    def _calculator_logger_init(self) -> None:
+        self.logger = logging.getLogger(f"{__name__}.{id(self)}")
+        self.logger.setLevel(logging.DEBUG)
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(logging.Formatter("%(message)s"))
+        try:
+            file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+        except FileNotFoundError:
+            LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+        file_handler.setFormatter(JsonFormatter())
+        self.logger.addHandler(console_handler)
+        self.logger.addHandler(file_handler)
+
+    def _load_history(self) -> None:
+        self.memory = self.history.load(self.DATA_FILE, on_warning=self.logger.warning)
+        self.logger.info(f"Loaded {len(self.history)} past calculations from {self.DATA_FILE}")
         self.logger.info("Python Calculator — type 'help' for commands")
 
     def _exit(self) -> None:
