@@ -361,46 +361,117 @@ class TaskRunnerApp(CalculatorApp):
         })
 
         self.manager.load(self.logger.warning)
-
+        self.task_handlers = {
+            "submit": self._handle_submit,
+            "batch": self._handle_batch,
+            "result": self._handle_result,
+        }
     def _make_calculator(self) -> Calculator:
         return ScientificCalculator()
     
-    def _exit(self) -> None:
-        """Save state and stop the loop."""
-        try:
-            self.history.save(self.data_file, self.memory)
-            self.logger.info(f"\nSaved {len(self.history)} calculations to {self.data_file}. Goodbye!")
-        except OSError as e:
-            self.logger.warning(f"\nCould not save to {self.data_file}: {e}. Goodbye!")
-        self.running = False
+    def validate_request(self, op: str, *args: object) -> None:
+        """Validate an operation without executing it."""
+        if op not in self.operations:
+            raise ValueError(f"Unknown operation: {op}")
 
-    def handle_command(self, command: str) -> None:
-        """Intercept task-runner commands and delegate other commands."""
-        tokens = tuple(command.split())
+        expected, _ = self.operations[op]
 
-        if tokens and tokens[0].lower() in ("submit", "batch", "result"):
-            self._process_task_command(tokens)
-            return
-
-        super().handle_command(command)
-
+        if len(args) != expected:
+            raise ValueError(f"{op} requires {expected} argument(s)")
 
     def _process_task_command(self, tokens: tuple) -> None:
         """Process commands specific to the task runner."""
         op = tokens[0].lower()
         args = tokens[1:]
+    
+        handler = self.task_handlers.get(op)
+        if handler:
+            handler(args)
 
-        if op == "submit":
-            self._handle_submit(args)
+    def _handle_submit(self, args: tuple) -> None:
 
-        elif op == "batch":
-            self._handle_batch(args)
+        if len(args) < 2:
+            self.logger.warning("Usage: submit <operation> <arguments>")
+            return
 
-        elif op == "result":
-            self._handle_result(args)
+        op = args[0].lower()
+        operands = args[1:]
 
-    def _handle_submit(self,args: tuple) -> None:
+        if op not in self.calculator.operations:
+            self.logger.warning(f"{op} is not a valid calculator operation")
+            return
+
+        expected = self.command_info[op][0]
+        if len(operands) != expected:
+            self.logger.warning(f"{op} requires {expected} argument(s)")
+            return
+
+        try:
+            converted = self._convert_args(operands)
+            if converted is None:
+                return
+
+            self.validate_request(op, *converted)
+
+            job_id = self.manager.submit(op, converted)
+            print(f"Job {job_id} queued")
+
+        except (ValueError, TypeError) as e:
+            self.logger.warning(str(e))
+
+    def _handle_batch(self, args: tuple) -> None:
+        """Submit valid calculator commands from a file."""
+        if len(args) != 1:
+            self.logger.warning("Usage: batch <filename>")
+            return
+
+        # Batch implementation goes here.
+
+    def _handle_result(self, args: tuple) -> None:
+        """Display a background job's result."""
+        if len(args) != 1:
+            self.logger.warning("Usage: result <job_id>")
+            return
+
+        try:
+            job_id = int(args[0])
+            job = self.manager.get(job_id)
+            print(job)
+        except (ValueError, JobNotFoundError) as e:
+            self.logger.warning(str(e))
+
+    def _show_jobs(self) -> None:
+        """Display all background jobs."""
+        # Jobs listing implementation goes here.
+
+    def _show_workers(self) -> None:
+        """Display worker thread status."""
+        # Worker status implementation goes here.
+
+    def _exit(self) -> None:
+        """Stop accepting jobs, wait for workers and save state."""
+        self.manager.stop_event.set()
+
+        # Wait for already queued jobs to finish.
+        self.manager.queue.join()
+
+        for worker in self.workers:
+            worker.thread.join()
+
+        super()._exit()
+
+
+    # Add scientific-specific validation here.
+    def handle_command(self, command: str) -> None:
+        """Intercept task-runner commands and delegate other commands."""
+        tokens = tuple(command.split())
+
+        if tokens and tokens[0].lower() in self.task_handlers:
+            self._process_task_command(tokens)
+            return
+
+        super().handle_command(command)
 
 if __name__ == "__main__":
-    # TaskRunnerApp().run()
-    print("Go Home")
+    TaskRunnerApp().run()
+    # print("Go Home")
