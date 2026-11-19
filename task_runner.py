@@ -12,6 +12,7 @@ import os
 
 JOBS_FILE = Path("output/jobs.json")
 NUM_WORKERS = 3
+WORKER_LOG = Path("logs/worer.log")
 
 
 
@@ -177,16 +178,14 @@ class JobManager:
     def _worker_logger_init(self) -> None:
         self.logger = logging.getLogger("runner")
         self.logger.setLevel(logging.DEBUG)
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(logging.Formatter("%(message)s"))
-        try:
-            file_handler = logging.FileHandler(JOBS_FILE, mode="a", encoding="utf-8")
-        except FileNotFoundError:
-            JOBS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            file_handler = logging.FileHandler(JOBS_FILE, mode="a", encoding="utf-8")
-        file_handler.setFormatter(JsonFormatter())
-        self.logger.addHandler(console_handler)
-        self.logger.addHandler(file_handler)
+        self.logger.propagate = False
+        if not self.logger.handlers:
+            WORKER_LOG.parent.mkdir(parents= True, exist_ok=True)
+            file_handler = logging.FileHandler(WORKER_LOG,mode="a",encoding="utf-8")
+            
+            self.logger.addHandler(file_handler)
+
+
     def submit(self, command: str, operands: tuple) -> int:
         # Here, lock needed because there is Read and write operation
         with self.lock:
@@ -196,14 +195,16 @@ class JobManager:
             self.jobs[job_id]= job
             self.queue.put(job_id)# Queue adding (publisher point)
             self.save()
+            self.logger.info(f"Main Thread Job-{job_id} Queued {{command}} {tuple(operands)}")
             return job_id 
 
     def get(self, job_id: int) -> Job: 
         with self.lock:
             if job_id not in self.jobs:
+                self.logger.error(f"No Jobs with id{job_id}")
                 raise JobNotFoundError(f"No Jobs with id{job_id}")
             return self.jobs[job_id]
-    def finish(self, job_id: int, result: object) -> None:
+    def finish(self, job_id: int, result: object,worker_name:str) -> None:
         with self.lock:
             if job_id not in self.jobs:
                 return
@@ -213,8 +214,9 @@ class JobManager:
             job.result = result
             self.history.add(Calculation(job.command,job.operands, result))
             self.save()
+            self.logger.info(f"{worker_name} Picked Job {job_id} Finished {{job.command}} {tuple(job.operands)} = {result}")
 
-    def fail(self, job_id: int, error: str) -> None: 
+    def fail(self, job_id: int, error: str,worker_name: str) -> None: 
         with self.lock:
             if job_id not in self.jobs:
                 return      
@@ -223,6 +225,7 @@ class JobManager:
             job.finished_at = time.time()
             job.error = error
             self.save()
+            self.logger.error(f"{worker_name} Picked Job {job_id} Failed {{job.command}} {tuple(job.operands)} Error = {error}")
     def save(self) -> None: 
         data = {str(jid):{
             "id": j.id,
@@ -242,6 +245,18 @@ class JobManager:
             json.dump(data,f,indent=2)
         os.replace(temp_file,self.jobs_file)
 
+
+    def mark_running(self, job_id: int,worker_name:str) -> Job | None:
+        with self.lock:
+            if job_id not in self.jobs:
+                return None
+            job = self.job[job_id]
+            job.state = JobState.RUNNING
+            job.started_at = time.time()
+            self.save()
+            self.logger.info(f"{worker_name} picked Job {job_id} Running {{job.command}} {tuple(job.operands)}")
+
+        
     def load(self,on_warning: object = None) -> None: 
         if not self.jobs_file.exists():
             return
@@ -279,6 +294,13 @@ class JobManager:
                 if self.jobs:
                     self._next_id=max(self.jobs.keys())+1
 
+    def __del__(self):
+        """Clean up logger handlers to prevent file descriptor leaks."""
+        if hasattr(self, 'logger'):
+            for handler in self.logger.handlers[:]:
+                self.logger.removeHandler(handler)
+                handler.close()
+
 
 class Worker:
     """One background thread that runs calculator jobs from the queue."""
@@ -288,32 +310,22 @@ class Worker:
         self.current_job: int | None = None
         self.thread = threading.Thread(target=self._loop, name=name)
 
-    def _loop(self) -> None:
-        # Hint: queue.get(timeout=0.5) lets the thread check
-        # stop_event regularly instead of blocking forever.
+    def _loop(self,worker_name) -> None:
         while not self.manager.stop_event.is_set():
             try:
                 job_id = self.manager.queue.get(timeout=0.5)
             except queue.Empty:
                 continue
-            with self.manager.lock:
-                if job_id not in self.manager.jobs:
-                    self.manager.queue.task_done()
-                    continue
-                job=self.manager.jobs[job_id]
-                job.state=JobState.RUNNING
-                job.started_at = time.time()
-                self.current_job = job_id
-                self.manager.save()
+            job = self.manager.mark_running(self.job_id,worker_name)
+            if job is None:
+                self.manager.queue.task_done()
+                continue
+            self.current_job = job_id
             try:
                 result = self.manager.calculator.calculate(job.command, *job.operands)
-                self.manager.finish(job_id, result)
-
-                duration = job.duration or 0.0
-                # print("Total Duration: {duration}")
+                self.manager.finish(job_id, result,worker_name)
             except Exception as e:
-                print(f"[worker] job {job_id} ({job.command} {job.operands}) FAILED: "f"{type(e).__name__}: {e}")
-                self.manager.fail(job_id, str(e))
+                self.manager.fail(job_id, str(e),worker_name)
             finally:
                 with self.manager.lock:
                     self.current_job = None
