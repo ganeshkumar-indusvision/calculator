@@ -341,30 +341,65 @@ class TaskRunnerApp(CalculatorApp):
 
     def __init__(self) -> None:
         super().__init__()
-        self.calculator = ScientificCalculator()
         self.manager = JobManager(self.calculator, self.history)
-        self.workers = [Worker(f"worker-{i}", self.manager)
-                        for i in range(1, NUM_WORKERS + 1)]
+        self.workers = [Worker(f"worker-{i}", self.manager) for i in range(1, NUM_WORKERS + 1)]
 
         self.command_info.update({
             "fact": (1, "Calculate factorial of n", "\nExample: \n> fact 5 \n> 120"),
             "primes": (1, "Count primes <= n and largest prime", "\nExample: \n> primes 10 \n> 4 primes, largest 7"),
             "fib": (1, "Calculate nth Fibonacci number", "\nExample: \n> fib 10 \n> 55"),
-            "submit": (1, "Submit a calculation as background job", "\nExample: \n> submit primes 2000000 \n> Job 1 queued"),
+            "submit": ((2,3), "Submit a calculation as background job", "\nExample: \n> submit primes 2000000 \n> Job 1 queued"),
             "batch": (1, "Submit calculations from a file", "\nExample: \n> batch sums.txt \n> Queued 4 jobs"),
             "jobs": (0, "List all background jobs", "\nExample: \n> jobs \n> Displays all jobs"),
             "result": (1, "Show the result of a background job", "\nExample: \n> result 1 \n> Shows job result"),
             "workers": (0, "Show status of worker threads", "\nExample: \n> workers \n> Displays worker status"),
         })
 
-        # self.app_handlers.update({
-        #     "jobs": self._jobs_cmd,
-        #     "workers": self._workers_cmd,
-        # })
-        self.
-    
-        def run()
+        self.app_handlers.update({
+            "jobs": self._show_jobs,
+            "workers": self._show_workers,
+        })
 
+        self.manager.load(self.logger.warning)
+
+    def _make_calculator(self) -> Calculator:
+        return ScientificCalculator()
+    
+    def _exit(self) -> None:
+        """Save state and stop the loop."""
+        try:
+            self.history.save(self.data_file, self.memory)
+            self.logger.info(f"\nSaved {len(self.history)} calculations to {self.data_file}. Goodbye!")
+        except OSError as e:
+            self.logger.warning(f"\nCould not save to {self.data_file}: {e}. Goodbye!")
+        self.running = False
+
+    def handle_command(self, command: str) -> None:
+        """Intercept task-runner commands and delegate other commands."""
+        tokens = tuple(command.split())
+
+        if tokens and tokens[0].lower() in ("submit", "batch", "result"):
+            self._process_task_command(tokens)
+            return
+
+        super().handle_command(command)
+
+
+    def _process_task_command(self, tokens: tuple) -> None:
+        """Process commands specific to the task runner."""
+        op = tokens[0].lower()
+        args = tokens[1:]
+
+        if op == "submit":
+            self._handle_submit(args)
+
+        elif op == "batch":
+            self._handle_batch(args)
+
+        elif op == "result":
+            self._handle_result(args)
+
+    def _handle_submit(self,args: tuple) -> None:
 
 if __name__ == "__main__":
     # TaskRunnerApp().run()

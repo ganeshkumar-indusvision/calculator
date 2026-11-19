@@ -381,6 +381,11 @@ class CalculatorApp:
         if not self._validate_input(tokens):
             return
 
+        self._process_command(tokens)
+
+
+    def _process_command(self, tokens: tuple) -> None:
+        """Process a validated command."""
         op = tokens[0].lower()
         args = tokens[1:]
 
@@ -415,6 +420,7 @@ class CalculatorApp:
         if converted is None:
             return
 
+        # Execute calculation.
         result = self.calculator.calculate(op, *converted)
 
         # I changed result to differetn fromate for reporting to user so i want to isolate someparts.
