@@ -184,10 +184,13 @@ class CalculatorApp:
 
     def __init__(self) -> None:
         """Set up the calculator, history, memory, and command tables."""
-        self.calculator = Calculator()
+        # added this becuase once i initalise the CalculatorApp class it fill be initiating calcualtor.
+        self.calculator = self._make_calculator()
         self.history = History()
         self.memory = None
         self.running = True
+
+        self.data_file = DATA_FILE
 
         # 1. Create a UNIQUE logger just for this object
 
@@ -222,7 +225,19 @@ class CalculatorApp:
             "quit": self._exit,
         }
         self._calculator_logger_init()
-
+        self._load_history()
+    # Change in result structure.
+    def _record_result(self, op:str ,operands:tuple,result:object)->None:
+        self.logger.info("%s",result)
+        self.history.add(Calculation(op,operands,result))
+        try:
+            self.history.save(self.data_file,self.memory)
+        except OSError as e:
+            self.logger.warning(f"warning: could not save history: {e}")
+    # Moved to this becaus in task runner inhertiing will have duplicate object.
+    def _make_calculator(self) -> Calculator:
+        """Factory for the calculator instance. Override to use a subclass."""
+        return Calculator()
 
     # Violation: Moved to method to have simple init block
     def _calculator_logger_init(self) -> None:
@@ -240,17 +255,17 @@ class CalculatorApp:
         self.logger.addHandler(file_handler)
 
     def _load_history(self) -> None:
-        self.memory = self.history.load(self.DATA_FILE, on_warning=self.logger.warning)
-        self.logger.info(f"Loaded {len(self.history)} past calculations from {self.DATA_FILE}")
+        self.memory = self.history.load(self.data_file, on_warning=self.logger.warning)
+        self.logger.info(f"Loaded {len(self.history)} past calculations from {self.data_file}")
         self.logger.info("Python Calculator — type 'help' for commands")
 
     def _exit(self) -> None:
         """Save state and stop the loop."""
         try:
-            self.history.save(DATA_FILE, self.memory)
-            self.logger.info(f"\nSaved {len(self.history)} calculations to {DATA_FILE}. Goodbye!")
+            self.history.save(self.data_file, self.memory)
+            self.logger.info(f"\nSaved {len(self.history)} calculations to {self.data_file}. Goodbye!")
         except OSError as e:
-            self.logger.warning(f"\nCould not save to {DATA_FILE}: {e}. Goodbye!")
+            self.logger.warning(f"\nCould not save to {self.data_file}: {e}. Goodbye!")
         self.running = False
 
     def _help(self, op: str | None = None) -> None:
@@ -323,7 +338,7 @@ class CalculatorApp:
         """Clear the history and persist it."""
         self.history.clear()
         try:
-            self.history.save(DATA_FILE, self.memory)
+            self.history.save(self.data_file, self.memory)
         except OSError as e:
             self.logger.warning(f"Warning: could not save history: {e}")
         self.logger.info("History cleared")
@@ -336,7 +351,7 @@ class CalculatorApp:
             return
         self.memory = last
         try:
-            self.history.save(DATA_FILE, self.memory)
+            self.history.save(self.data_file, self.memory)
         except OSError as e:
             self.logger.warning(f"Warning: could not save memory: {e}")
         self.logger.info(f"Stored {last} in memory")
@@ -352,7 +367,7 @@ class CalculatorApp:
         """Clear memory and persist it."""
         self.memory = None
         try:
-            self.history.save(DATA_FILE, self.memory)
+            self.history.save(self.data_file, self.memory)
         except OSError as e:
             self.logger.warning(f"Warning: could not save memory: {e}")
         self.logger.info("Memory cleared")
@@ -401,13 +416,10 @@ class CalculatorApp:
             return
 
         result = self.calculator.calculate(op, *converted)
-        self.logger.info("%s", result)
 
-        self.history.add(Calculation(op, converted, result))
-        try:
-            self.history.save(DATA_FILE, self.memory)
-        except OSError as e:
-            self.logger.warning(f"Warning: could not save history: {e}")
+        # I changed result to differetn fromate for reporting to user so i want to isolate someparts.
+        self._record_result(op,converted, result)
+        
 
     def run(self) -> None:
         """Run the interactive input loop."""

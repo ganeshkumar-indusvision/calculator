@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 import logging
-from calculator import Calculator, History, Calculation, CalculatorApp,JsonFormatter
+from calculator import Calculator, History, Calculation, CalculatorApp
 from decimal import Decimal, getcontext, MAX_EMAX, MIN_EMIN
 import json
 import time
@@ -182,7 +182,10 @@ class JobManager:
         if not self.logger.handlers:
             WORKER_LOG.parent.mkdir(parents= True, exist_ok=True)
             file_handler = logging.FileHandler(WORKER_LOG,mode="a",encoding="utf-8")
-            
+            file_handler.setFormatter(logging.Formatter(
+                fmt="%(asctime)s [%(threadName)s] %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            ))
             self.logger.addHandler(file_handler)
 
 
@@ -195,16 +198,16 @@ class JobManager:
             self.jobs[job_id]= job
             self.queue.put(job_id)# Queue adding (publisher point)
             self.save()
-            self.logger.info(f"Main Thread Job-{job_id} Queued {{command}} {tuple(operands)}")
+            self.logger.info(f"Job-{job_id} Queued ({command} {operands})")
             return job_id 
 
     def get(self, job_id: int) -> Job: 
         with self.lock:
             if job_id not in self.jobs:
-                self.logger.error(f"No Jobs with id{job_id}")
+                self.logger.error(f"No Jobs with id {job_id}")
                 raise JobNotFoundError(f"No Jobs with id{job_id}")
             return self.jobs[job_id]
-    def finish(self, job_id: int, result: object,worker_name:str) -> None:
+    def finish(self, job_id: int, result: object) -> None:
         with self.lock:
             if job_id not in self.jobs:
                 return
@@ -214,9 +217,9 @@ class JobManager:
             job.result = result
             self.history.add(Calculation(job.command,job.operands, result))
             self.save()
-            self.logger.info(f"{worker_name} Picked Job {job_id} Finished {{job.command}} {tuple(job.operands)} = {result}")
+            self.logger.info(f"Job {job_id} Finished ({job.command} {job.operands} = {result})")
 
-    def fail(self, job_id: int, error: str,worker_name: str) -> None: 
+    def fail(self, job_id: int, error: str) -> None: 
         with self.lock:
             if job_id not in self.jobs:
                 return      
@@ -225,7 +228,7 @@ class JobManager:
             job.finished_at = time.time()
             job.error = error
             self.save()
-            self.logger.error(f"{worker_name} Picked Job {job_id} Failed {{job.command}} {tuple(job.operands)} Error = {error}")
+            self.logger.error(f"Job {job_id} Failed ({job.command} {job.operands} Error = {error})")
     def save(self) -> None: 
         data = {str(jid):{
             "id": j.id,
@@ -246,15 +249,16 @@ class JobManager:
         os.replace(temp_file,self.jobs_file)
 
 
-    def mark_running(self, job_id: int,worker_name:str) -> Job | None:
+    def mark_running(self, job_id: int) -> Job | None:
         with self.lock:
             if job_id not in self.jobs:
                 return None
-            job = self.job[job_id]
+            job = self.jobs[job_id]
             job.state = JobState.RUNNING
             job.started_at = time.time()
             self.save()
-            self.logger.info(f"{worker_name} picked Job {job_id} Running {{job.command}} {tuple(job.operands)}")
+            self.logger.info(f"Job {job_id} Running ({job.command} {job.operands})")
+            return job
 
         
     def load(self,on_warning: object = None) -> None: 
@@ -274,16 +278,16 @@ class JobManager:
                     on_warning(msg)
                 return
         with self.lock:
-            for _,item in data.items():
+            for _, item in data.items():
                 state = JobState(item["state"])
                 error = item.get("error")
                 if state in (JobState.QUEUED, JobState.RUNNING):
                     state = JobState.FAILED
-                    error = "Interuped"
+                    error = "interrupted"
                 job = Job(
                     id = item["id"],
                     command= item["command"],
-                    operands= item["operands"],
+                    operands= tuple(item["operands"]),
                     state= state,
                     result= item["result"],
                     error = error,
@@ -291,8 +295,8 @@ class JobManager:
                     finished_at=item["finished_at"],
                 )
                 self.jobs[job.id] = job
-                if self.jobs:
-                    self._next_id=max(self.jobs.keys())+1
+            if self.jobs:                               # ← OUTSIDE the loop
+                self._next_id = max(self.jobs.keys()) + 1    
 
     def __del__(self):
         """Clean up logger handlers to prevent file descriptor leaks."""
@@ -309,23 +313,22 @@ class Worker:
         self.manager = manager
         self.current_job: int | None = None
         self.thread = threading.Thread(target=self._loop, name=name)
-
-    def _loop(self,worker_name) -> None:
+    def _loop(self) -> None:
         while not self.manager.stop_event.is_set():
             try:
                 job_id = self.manager.queue.get(timeout=0.5)
             except queue.Empty:
                 continue
-            job = self.manager.mark_running(self.job_id,worker_name)
+            job = self.manager.mark_running(job_id)
             if job is None:
                 self.manager.queue.task_done()
                 continue
             self.current_job = job_id
             try:
                 result = self.manager.calculator.calculate(job.command, *job.operands)
-                self.manager.finish(job_id, result,worker_name)
+                self.manager.finish(job_id, result)
             except Exception as e:
-                self.manager.fail(job_id, str(e),worker_name)
+                self.manager.fail(job_id, str(e))
             finally:
                 with self.manager.lock:
                     self.current_job = None
@@ -338,7 +341,6 @@ class TaskRunnerApp(CalculatorApp):
 
     def __init__(self) -> None:
         super().__init__()
-        self._worker_logger_init()
         self.calculator = ScientificCalculator()
         self.manager = JobManager(self.calculator, self.history)
         self.workers = [Worker(f"worker-{i}", self.manager)
@@ -359,7 +361,7 @@ class TaskRunnerApp(CalculatorApp):
         #     "jobs": self._jobs_cmd,
         #     "workers": self._workers_cmd,
         # })
-
+        self.
     
         def run()
 
