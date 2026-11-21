@@ -76,7 +76,6 @@ class Calculator:
         for v in operands:
             self._validate_number(v)
 
-        # operation-specific rules
         if op in ("div", "mod") and operands[1] == 0:
             raise ZeroDivisionError("Error: cannot divide by zero")
         if op == "sqrt" and operands[0] < 0:
@@ -184,28 +183,14 @@ class CalculatorApp:
 
     def __init__(self) -> None:
         """Set up the calculator, history, memory, and command tables."""
-        self.calculator = Calculator()
-        self.history = History()
+        # added this becuase once i initalise the CalculatorApp class it fill be initiating calcualtor.
+        self.calculator = self._make_calculator()
+        self.data_file = DATA_FILE
+        self.history = self._make_history()
         self.memory = None
         self.running = True
 
         # 1. Create a UNIQUE logger just for this object
-        self.logger = logging.getLogger(f"{__name__}.{id(self)}")
-        self.logger.setLevel(logging.DEBUG)
-        
-        # 2. No if statement needed! This logger is brand new and empty.
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(logging.Formatter("%(message)s"))
-        
-        try:
-            file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
-        except FileNotFoundError:
-            LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-            file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
-        file_handler.setFormatter(JsonFormatter())
-        
-        self.logger.addHandler(console_handler)
-        self.logger.addHandler(file_handler)
 
         self.command_info: dict[str, tuple[int, str, str]] = {
             "add": (2, "Add two numbers","\nExample: \n> add 1 3 \n> 4"),
@@ -237,18 +222,53 @@ class CalculatorApp:
             "exit": self._exit,
             "quit": self._exit,
         }
+        self._calculator_logger_init()
+        self._load_history()
 
-        self.memory = self.history.load(DATA_FILE, on_warning=self.logger.warning)
-        self.logger.info(f"Loaded {len(self.history)} past calculations from {DATA_FILE}")
+    def _display_result(self, result):
+        self.logger.info("%s", result)
+
+    def _record_result(self, op, operands, result):
+        self.history.add(Calculation(op, operands, result))
+        try:
+            self.history.save(self.data_file, self.memory)
+        except OSError as e:
+            self.logger.warning(f"Warning: could not save history: {e}")
+
+    def _make_calculator(self) -> Calculator:
+        """Factory for the calculator instance. Override to use a subclass."""
+        return Calculator()
+    # I have created new class in scitific because there is modification result
+    def _make_history(self) -> History:
+        """Factory for the history instance. Override to use a subclass."""
+        return History()
+
+    def _calculator_logger_init(self) -> None:
+        self.logger = logging.getLogger(f"{__name__}.{id(self)}")
+        self.logger.setLevel(logging.DEBUG)
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(logging.Formatter("%(message)s"))
+        try:
+            file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+        except FileNotFoundError:
+            LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+        file_handler.setFormatter(JsonFormatter())
+        self.logger.addHandler(console_handler)
+        self.logger.addHandler(file_handler)
+
+    def _load_history(self) -> None:
+        self.memory = self.history.load(self.data_file, on_warning=self.logger.warning)
+        self.logger.info(f"Loaded {len(self.history)} past calculations from {self.data_file}")
         self.logger.info("Python Calculator — type 'help' for commands")
 
     def _exit(self) -> None:
         """Save state and stop the loop."""
         try:
-            self.history.save(DATA_FILE, self.memory)
-            self.logger.info(f"\nSaved {len(self.history)} calculations to {DATA_FILE}. Goodbye!")
+            self.history.save(self.data_file, self.memory)
+            self.logger.info(f"\nSaved {len(self.history)} calculations to {self.data_file}. Goodbye!")
         except OSError as e:
-            self.logger.warning(f"\nCould not save to {DATA_FILE}: {e}. Goodbye!")
+            self.logger.warning(f"\nCould not save to {self.data_file}: {e}. Goodbye!")
         self.running = False
 
     def _help(self, op: str | None = None) -> None:
@@ -321,7 +341,7 @@ class CalculatorApp:
         """Clear the history and persist it."""
         self.history.clear()
         try:
-            self.history.save(DATA_FILE, self.memory)
+            self.history.save(self.data_file, self.memory)
         except OSError as e:
             self.logger.warning(f"Warning: could not save history: {e}")
         self.logger.info("History cleared")
@@ -334,7 +354,7 @@ class CalculatorApp:
             return
         self.memory = last
         try:
-            self.history.save(DATA_FILE, self.memory)
+            self.history.save(self.data_file, self.memory)
         except OSError as e:
             self.logger.warning(f"Warning: could not save memory: {e}")
         self.logger.info(f"Stored {last} in memory")
@@ -350,7 +370,7 @@ class CalculatorApp:
         """Clear memory and persist it."""
         self.memory = None
         try:
-            self.history.save(DATA_FILE, self.memory)
+            self.history.save(self.data_file, self.memory)
         except OSError as e:
             self.logger.warning(f"Warning: could not save memory: {e}")
         self.logger.info("Memory cleared")
@@ -364,6 +384,11 @@ class CalculatorApp:
         if not self._validate_input(tokens):
             return
 
+        self._process_command(tokens)
+
+
+    def _process_command(self, tokens: tuple) -> None:
+        """Process a validated command."""
         op = tokens[0].lower()
         args = tokens[1:]
 
@@ -398,14 +423,12 @@ class CalculatorApp:
         if converted is None:
             return
 
+        # Execute calculation.
         result = self.calculator.calculate(op, *converted)
-        self.logger.info("%s", result)
 
-        self.history.add(Calculation(op, converted, result))
-        try:
-            self.history.save(DATA_FILE, self.memory)
-        except OSError as e:
-            self.logger.warning(f"Warning: could not save history: {e}")
+        # I changed result to differetn fromate for reporting to user so i want to isolate someparts.
+        self._display_result(result)
+        self._record_result(op, converted, result)
 
     def run(self) -> None:
         """Run the interactive input loop."""

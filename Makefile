@@ -7,6 +7,9 @@ test:
 	$(PYTHON) -m unittest -v test_calculator.py
 
 # Run the calculator arithmetic tests.
+test-runner:
+	$(PYTHON) -m unittest -v test_runner.py
+
 test-calculator:
 	$(PYTHON) -m unittest -v test_calculator.TestCalculator
 
