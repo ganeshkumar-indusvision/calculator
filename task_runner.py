@@ -1,14 +1,15 @@
-import threading
+import json
+import logging
+import os
 import queue
+import threading
+import time
 from dataclasses import dataclass
+from decimal import MAX_EMAX, MIN_EMIN, Decimal, getcontext
 from enum import Enum
 from pathlib import Path
-import logging
-from calculator import Calculator, History, Calculation, CalculatorApp
-from decimal import Decimal, getcontext, MAX_EMAX, MIN_EMIN
-import json
-import time
-import os
+
+from calculator import Calculation, Calculator, CalculatorApp, History
 
 JOBS_FILE = Path("output/jobs.json")
 NUM_WORKERS = 3
@@ -45,7 +46,7 @@ class ScientificCalculator(Calculator):
 
     def count_primes(self, num: Decimal) -> tuple[Decimal, Decimal]:  # (count, largest)
         if num <= 1:
-            return Decimal('0'), Decimal('0')  
+            return Decimal(str(0)), Decimal(str(0))  
         # threshold = num.sqrt().quantize(Decimal('1'), rounding=ROUND_DOWN)
         # prime.append(2)
         num = int(num)
@@ -81,21 +82,21 @@ class ScientificCalculator(Calculator):
         result = (lenght,True,) if lenght >= 50 else (int(value),False,)
         return result
 
-    def _validate_scintific_output(self, op: str,*args: object) -> tuple:
+    def _validate_scientific_output(self, op: str,*args: object) -> tuple:
         raw = args[0]
         if op=="primes":
             # for arg in args:
             return (op, *(self._validate_digit_count(value) for value in raw))
         return (op, self._validate_digit_count(raw[0] ))
 
-    def _validate_scintific_number(self, number: object) -> None:
+    def _validate_scientific_number(self, number: object) -> None:
         if not isinstance(number, int) or isinstance(number, bool):
-            raise ValueError(f"{number!r} is not a valid number")
+            raise TypeError("is not a valid number")
         if not Decimal(str(number)).is_finite():
-            raise ValueError(f"{number!r} is not a finite number")
+            raise ValueError("is not a finite number")
 
 
-    def _validate_scintific_input(self, *args: object) -> bool:
+    def _validate_scientific_input(self, *args: object) -> bool:
         if not args:
             raise ValueError("No operation given")
 
@@ -110,22 +111,21 @@ class ScientificCalculator(Calculator):
         if len(operands) != n:
             raise ValueError(f"{op} takes exactly {n} argument{'s' if n != 1 else ''}")
 
-        for v in operands:
-            self._validate_scintific_number(v)
+        for value in operands:
+            self._validate_scientific_number(value)
 
         if operands[0] <0:
-            raise ValueError(f"Value should be <= 0")
-        if op == "fact":
-            if operands[0]>= 200000:
-                raise ValueError(f"fact is limited to n ≤ 200000")
+            raise ValueError("Value should be <= 0")
+        if op == "fact" and operands[0]>= 200000:
+                raise ValueError("fact is limited to n ≤ 200000")
         return True
         
     def calculate(self, *args: object) -> int | float:
         """Validate the request, run the operation, and returns a clean result."""
-        if self._validate_scintific_input(*args):
+        if self._validate_scientific_input(*args):
             op = str(args[0])
             operands = [Decimal(str(v)) for v in args[1:] if v is not None]
-            return self._validate_scintific_output(op,self.operations[op][1](*operands))
+            return self._validate_scientific_output(op,self.operations[op][1](*operands))
         return super().calculate(*args)
 
 
@@ -158,7 +158,7 @@ class JobManager:
 
     def __init__(self, calculator: ScientificCalculator, history: History, jobs_file: Path= JOBS_FILE) -> None:
         self.calculator = calculator
-        self.history = history           # Project 1's History, now shared
+        self.history = history           
         self.jobs: dict[int, Job] = {}
         self.queue: queue.Queue[int] = queue.Queue()
         self.lock = threading.RLock()
@@ -222,11 +222,11 @@ class JobManager:
             if job_id not in self.jobs:
                 return
             job = self.jobs[job_id]
-            job.state = JobState.DONE
             job.finished_at = time.time()
             job.result = result
             self.record_calculation(job.command, job.operands, result)
             self.save()
+            job.state = JobState.DONE
             self.logger.info(f"Job {job_id} Finished ({job.command} {job.operands} = {result})")
 
     def fail(self, job_id: int, error: str) -> None: 
@@ -234,10 +234,10 @@ class JobManager:
             if job_id not in self.jobs:
                 return      
             job = self.jobs[job_id]
-            job.state = JobState.FAILED
             job.finished_at = time.time()
             job.error = error
             self.save()
+            job.state = JobState.FAILED
             self.logger.error(f"Job {job_id} Failed ({job.command} {job.operands} Error = {error})")
     def save(self) -> None: 
         data = {str(jid):{
