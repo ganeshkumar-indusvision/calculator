@@ -152,11 +152,6 @@ class Job:
         if self.started_at is not None and self.finished_at is not None:
             return self.finished_at - self.started_at
 
-class JobNotFoundError(Exception):
-    pass
-
-class InvalidJobError(Exception):
-    pass
 
 class JobManager:
     """Owns jobs, the queue, the lock and saving. Safe to call from any thread."""
@@ -204,7 +199,7 @@ class JobManager:
         with self.lock:
             if job_id not in self.jobs:
                 self.logger.error(f"No Jobs with id {job_id}")
-                raise JobNotFoundError(f"No Jobs with id{job_id}")
+                raise ValueError(f"No Jobs with id{job_id}")
             return self.jobs[job_id]
     def record_calculation(self, op: str, operands: tuple, result: object, data_file: Path | None = None, memory: object = None) -> None:
         # central place for history recording so both main thread and workers use it under the lock
@@ -542,7 +537,7 @@ class TaskRunnerApp(CalculatorApp):
         try:
             job_id = int(args[0])
             job = self.manager.get(job_id)
-        except (ValueError, JobNotFoundError) as e:
+        except (ValueError) as e:
             self.logger.warning(str(e))
             return
 
