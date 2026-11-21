@@ -76,7 +76,6 @@ class Calculator:
         for v in operands:
             self._validate_number(v)
 
-        # operation-specific rules
         if op in ("div", "mod") and operands[1] == 0:
             raise ZeroDivisionError("Error: cannot divide by zero")
         if op == "sqrt" and operands[0] < 0:
@@ -186,11 +185,10 @@ class CalculatorApp:
         """Set up the calculator, history, memory, and command tables."""
         # added this becuase once i initalise the CalculatorApp class it fill be initiating calcualtor.
         self.calculator = self._make_calculator()
-        self.history = History()
+        self.data_file = DATA_FILE
+        self.history = self._make_history()
         self.memory = None
         self.running = True
-
-        self.data_file = DATA_FILE
 
         # 1. Create a UNIQUE logger just for this object
 
@@ -226,20 +224,25 @@ class CalculatorApp:
         }
         self._calculator_logger_init()
         self._load_history()
-    # Change in result structure.
-    def _record_result(self, op:str ,operands:tuple,result:object)->None:
-        self.logger.info("%s",result)
-        self.history.add(Calculation(op,operands,result))
+
+    def _display_result(self, result):
+        self.logger.info("%s", result)
+
+    def _record_result(self, op, operands, result):
+        self.history.add(Calculation(op, operands, result))
         try:
-            self.history.save(self.data_file,self.memory)
+            self.history.save(self.data_file, self.memory)
         except OSError as e:
-            self.logger.warning(f"warning: could not save history: {e}")
-    # Moved to this becaus in task runner inhertiing will have duplicate object.
+            self.logger.warning(f"Warning: could not save history: {e}")
+
     def _make_calculator(self) -> Calculator:
         """Factory for the calculator instance. Override to use a subclass."""
         return Calculator()
+    # I have created new class in scitific because there is modification result
+    def _make_history(self) -> History:
+        """Factory for the history instance. Override to use a subclass."""
+        return History()
 
-    # Violation: Moved to method to have simple init block
     def _calculator_logger_init(self) -> None:
         self.logger = logging.getLogger(f"{__name__}.{id(self)}")
         self.logger.setLevel(logging.DEBUG)
@@ -424,8 +427,8 @@ class CalculatorApp:
         result = self.calculator.calculate(op, *converted)
 
         # I changed result to differetn fromate for reporting to user so i want to isolate someparts.
-        self._record_result(op,converted, result)
-        
+        self._display_result(result)
+        self._record_result(op, converted, result)
 
     def run(self) -> None:
         """Run the interactive input loop."""
