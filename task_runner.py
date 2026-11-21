@@ -132,31 +132,6 @@ class ScientificCalculator(Calculator):
         return super().calculate(*args)
 
 
-class ScientificHistory(History):
-    """History that normalizes scientific tuples to scalars and auto-saves."""
-
-    def __init__(self, save_path=None, memory_getter=None):
-        super().__init__()
-        self._save_path = save_path
-        self._memory_getter = memory_getter
-
-    def add(self, calc):
-        result = calc.result
-        if isinstance(result, (tuple, list)) and result and isinstance(result[0], str):
-            op = result[0]
-            if op == "primes":
-                result = result[2][0]
-            elif op in ("fact", "fib"):
-                result = result[1][0]
-        super().add(Calculation(calc.op, tuple(calc.operands), result))
-        if self._save_path:
-            try:
-                memory = self._memory_getter() if self._memory_getter else None
-                self.save(self._save_path, memory)
-            except OSError as e:
-                logging.getLogger("runner").warning(f"Could not save history: {e}")
-
-
 class JobState(Enum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -181,12 +156,12 @@ class Job:
             return self.finished_at - self.started_at
 
 class JobNotFoundError(Exception):
-    """Raised when querying a job id that does not exist."""
+    pass
+
+class InvalidJobError(Exception):
     pass
 
 class JobManager:
-    """Owns jobs, the queue, the lock and saving. Safe to call from any thread."""
-
     def __init__(self, calculator: ScientificCalculator, history: History, jobs_file: Path= JOBS_FILE) -> None:
         self.calculator = calculator
         self.history = history           # Project 1's History, now shared
@@ -231,6 +206,22 @@ class JobManager:
                 self.logger.error(f"No Jobs with id {job_id}")
                 raise JobNotFoundError(f"No Jobs with id{job_id}")
             return self.jobs[job_id]
+    def record_calculation(self, op: str, operands: tuple, result: object, data_file: Path | None = None, memory: object = None) -> None:
+        # central place for history recording so both main thread and workers use it under the lock
+        with self.lock:
+            val = result
+            if isinstance(val, (tuple, list)) and val and isinstance(val[0], str):
+                if val[0] == "primes":
+                    val = val[2][0]
+                elif val[0] in ("fact", "fib"):
+                    val = val[1][0]
+            self.history.add(Calculation(op, tuple(operands), val))
+            if data_file:
+                try:
+                    self.history.save(data_file, memory)
+                except OSError as e:
+                    self.logger.warning(f"Could not save history: {e}")
+
     def finish(self, job_id: int, result: object) -> None:
         with self.lock:
             if job_id not in self.jobs:
@@ -239,7 +230,7 @@ class JobManager:
             job.state = JobState.DONE
             job.finished_at = time.time()
             job.result = result
-            self.history.add(Calculation(job.command,job.operands, result))
+            self.record_calculation(job.command, job.operands, result)
             self.save()
             self.logger.info(f"Job {job_id} Finished ({job.command} {job.operands} = {result})")
 
@@ -322,10 +313,27 @@ class JobManager:
             if self.jobs:                               # ← OUTSIDE the loop
                 self._next_id = max(self.jobs.keys()) + 1    
 
+    def show_jobs(self) -> None:
+        with self.lock:
+            jobs = sorted(self.jobs.values(), key=lambda j: j.id)
+        if not jobs:
+            print("No jobs yet")
+            return
+        for job in jobs:
+            ops_str = " ".join(str(o) for o in job.operands)
+            cmd_str = f"{job.command} {ops_str}".strip()
+            if job.state == JobState.DONE:
+                dur = f"{job.duration:.2f}s" if job.duration is not None else "0.00s"
+                print(f" {job.id:<2} {cmd_str:<16} DONE    {dur}")
+            elif job.state == JobState.FAILED:
+                print(f" {job.id:<2} {cmd_str:<16} FAILED  {job.error or ''}")
+            elif job.state == JobState.RUNNING:
+                print(f" {job.id:<2} {cmd_str:<16} RUNNING")
+            else:
+                print(f" {job.id:<2} {cmd_str:<16} QUEUED")    
+
 
 class Worker:
-    """One background thread that runs calculator jobs from the queue."""
-
     def __init__(self, name: str, manager: JobManager) -> None:
         self.manager = manager
         self.current_job: int | None = None
@@ -333,6 +341,7 @@ class Worker:
     def _loop(self) -> None:
         while not self.manager.stop_event.is_set():
             try:
+                # 0.5s timeout lets thread regularly check stop_event so quit doesn't block forever
                 job_id = self.manager.queue.get(timeout=0.5)
             except queue.Empty:
                 continue
@@ -341,7 +350,9 @@ class Worker:
                 self.manager.queue.task_done()
                 continue
             self.current_job = job_id
+            # print(f"[{self.thread.name}] running job {job_id}")
             try:
+                # calc has no shared state so no lock needed here
                 result = self.manager.calculator.calculate(job.command, *job.operands)
                 self.manager.finish(job_id, result)
             except Exception as e:
@@ -354,8 +365,6 @@ class Worker:
 
 
 class TaskRunnerApp(CalculatorApp):
-    """The calculator app plus background job commands."""
-
     def __init__(self) -> None:
         super().__init__()
         self.manager = JobManager(self.calculator, self.history)
@@ -393,14 +402,7 @@ class TaskRunnerApp(CalculatorApp):
     def _make_calculator(self) -> Calculator:
         return ScientificCalculator()
 
-    def _make_history(self) -> History:
-        return ScientificHistory(save_path=self.data_file,memory_getter=self._get_memory)
-
-    def _get_memory(self):
-        return self.memory
-
     def format_result(self, result):
-        """Format a scientific result tuple for display."""
         if isinstance(result, (tuple, list)) and result and isinstance(result[0], str):
             op = result[0]
             if op in ("fact", "fib"):
@@ -415,11 +417,9 @@ class TaskRunnerApp(CalculatorApp):
         print(self.format_result(result))
 
     def _record_result(self, op, operands, result):
-        with self.manager.lock:
-            self.history.add(Calculation(op, tuple(operands), result))
+        self.manager.record_calculation(op, operands, result, self.data_file, self.memory)
     
     def validate_request(self, op: str, *args: object) -> None:
-        """Validate an operation without executing it."""
         if op not in self.calculator.operations:
             raise ValueError(f"Unknown operation: {op}")
 
@@ -429,7 +429,6 @@ class TaskRunnerApp(CalculatorApp):
             raise ValueError(f"{op} requires {expected} argument(s)")
 
     def _process_task_command(self, tokens: tuple) -> None:
-        """Process commands specific to the task runner."""
         op = tokens[0].lower()
         args = tokens[1:]
     
@@ -473,7 +472,6 @@ class TaskRunnerApp(CalculatorApp):
             self.logger.warning(str(e))
 
     def _handle_batch(self, args: tuple) -> None:
-        """Submit valid calculator commands from a file."""
         if len(args) != 1:
             self.logger.warning("Usage: batch <filename>")
             return
@@ -493,43 +491,26 @@ class TaskRunnerApp(CalculatorApp):
         invalid = []
 
         for line_no, line in enumerate(lines, start=1):
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
             parts = line.split()
-            cmd = parts[0].lower()
+            if not parts or parts[0].startswith("#"):
+                continue
+            cmd, raw = parts[0].lower(), parts[1:]
 
             if cmd in ("ms", "mr", "mc"):
                 invalid.append((line_no, f"{cmd} can't be run as a job"))
-                continue
-            if cmd not in self.calculator.operations:
+            elif cmd not in self.calculator.operations:
                 invalid.append((line_no, f"Unknown command '{cmd}'"))
-                continue
-
-            expected, _ = self.calculator.operations[cmd]
-            raw = parts[1:]
-            if len(raw) != expected:
-                suffix = "number" if expected == 1 else "numbers"
-                invalid.append((line_no, f"{cmd} needs {expected} {suffix}"))
-                continue
-
-            converted = []
-            bad = False
-            for s in raw:
-                if s.lower() == "last":
-                    invalid.append((line_no, "'last' is not allowed in batch files"))
-                    bad = True
-                    break
-                v = self._detect_numeric_type(s)
-                if v is None:
-                    invalid.append((line_no, f"'{s}' is not a valid number"))
-                    bad = True
-                    break
-                converted.append(v)
-            if bad:
-                continue
-
-            queued_ids.append(self.manager.submit(cmd, tuple(converted)))
+            elif len(raw) != self.calculator.operations[cmd][0]:
+                exp = self.calculator.operations[cmd][0]
+                invalid.append((line_no, f"{cmd} needs {exp} {'number' if exp == 1 else 'numbers'}"))
+            elif any(s.lower() == "last" for s in raw):
+                invalid.append((line_no, "'last' is not allowed in batch files"))
+            else:
+                nums = [self._detect_numeric_type(s) for s in raw]
+                if None in nums:
+                    invalid.append((line_no, f"'{raw[nums.index(None)]}' is not a valid number"))
+                else:
+                    queued_ids.append(self.manager.submit(cmd, tuple(nums)))
 
         if queued_ids:
             self._ensure_workers_started()
@@ -547,7 +528,6 @@ class TaskRunnerApp(CalculatorApp):
             print(msg)
 
     def _handle_result(self, args: tuple) -> None:
-        """Display a background job's result."""
         if len(args) != 1:
             self.logger.warning("Usage: result <job_id>")
             return
@@ -567,27 +547,9 @@ class TaskRunnerApp(CalculatorApp):
             print(job.state.value.upper())
 
     def _show_jobs(self) -> None:
-        """Display all background jobs."""
-        with self.manager.lock:
-            jobs = sorted(self.manager.jobs.values(), key=lambda j: j.id)
-        if not jobs:
-            print("No jobs yet")
-            return
-        for job in jobs:
-            ops_str = " ".join(str(o) for o in job.operands)
-            cmd_str = f"{job.command} {ops_str}".strip()
-            if job.state == JobState.DONE:
-                dur = f"{job.duration:.2f}s" if job.duration is not None else "0.00s"
-                print(f" {job.id:<2} {cmd_str:<16} DONE    {dur}")
-            elif job.state == JobState.FAILED:
-                print(f" {job.id:<2} {cmd_str:<16} FAILED  {job.error or ''}")
-            elif job.state == JobState.RUNNING:
-                print(f" {job.id:<2} {cmd_str:<16} RUNNING")
-            else:
-                print(f" {job.id:<2} {cmd_str:<16} QUEUED")
+        self.manager.show_jobs()
 
     def _show_workers(self) -> None:
-        """Display worker thread status."""
         if not self._workers_started:
             print("(workers not started — submit a job first)")
             return
@@ -604,7 +566,6 @@ class TaskRunnerApp(CalculatorApp):
                 print(f"{worker.thread.name}: running job {worker.current_job}")
 
     def _exit(self) -> None:
-        """Stop accepting jobs, wait for workers and save state."""
         # Wait for already queued jobs to finish.
         self.manager.queue.join()
         self.manager.stop_event.set()
@@ -615,7 +576,6 @@ class TaskRunnerApp(CalculatorApp):
 
     # Add scientific-specific validation here.
     def handle_command(self, command: str) -> None:
-        """Intercept task-runner commands and delegate other commands."""
         tokens = tuple(command.split())
 
         if tokens and tokens[0].lower() in self.task_handlers:
