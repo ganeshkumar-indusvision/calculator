@@ -82,7 +82,6 @@ class ScientificCalculator(Calculator):
         return result
 
     def _validate_scintific_output(self, op: str,*args: object) -> tuple:
-        """Convert a whole Decimal to int, otherwise return float."""
         raw = args[0]
         if op=="primes":
             # for arg in args:
@@ -90,7 +89,6 @@ class ScientificCalculator(Calculator):
         return (op, self._validate_digit_count(raw[0] ))
 
     def _validate_scintific_number(self, number: object) -> None:
-        """Raise if number is not a finite int/float/Decimal (bool is rejected)."""
         if not isinstance(number, int) or isinstance(number, bool):
             raise ValueError(f"{number!r} is not a valid number")
         if not Decimal(str(number)).is_finite():
@@ -98,7 +96,6 @@ class ScientificCalculator(Calculator):
 
 
     def _validate_scintific_input(self, *args: object) -> bool:
-        """Validate an input request before running the operation."""
         if not args:
             raise ValueError("No operation given")
 
@@ -124,7 +121,7 @@ class ScientificCalculator(Calculator):
         return True
         
     def calculate(self, *args: object) -> int | float:
-        """Validate the request, run the operation, and return a clean result."""
+        """Validate the request, run the operation, and returns a clean result."""
         if self._validate_scintific_input(*args):
             op = str(args[0])
             operands = [Decimal(str(v)) for v in args[1:] if v is not None]
@@ -162,6 +159,8 @@ class InvalidJobError(Exception):
     pass
 
 class JobManager:
+    """Owns jobs, the queue, the lock and saving. Safe to call from any thread."""
+
     def __init__(self, calculator: ScientificCalculator, history: History, jobs_file: Path= JOBS_FILE) -> None:
         self.calculator = calculator
         self.history = history           # Project 1's History, now shared
@@ -189,6 +188,7 @@ class JobManager:
 
 
     def submit(self, command: str, operands: tuple) -> int:
+        """Add a job in the queue and return it's id."""
         # Here, lock needed because there is Read and write operation
         with self.lock:
             job_id = self._next_id
@@ -277,6 +277,7 @@ class JobManager:
 
         
     def load(self,on_warning: object = None) -> None: 
+        """Load jobs from the file and mark unfinished one as interrupted."""
         if not self.jobs_file.exists():
             return
         try:
@@ -314,6 +315,7 @@ class JobManager:
                 self._next_id = max(self.jobs.keys()) + 1    
 
     def show_jobs(self) -> None:
+        """Print all jobs with there state and duration."""
         with self.lock:
             jobs = sorted(self.jobs.values(), key=lambda j: j.id)
         if not jobs:
@@ -334,6 +336,8 @@ class JobManager:
 
 
 class Worker:
+    """One background thread that runs calculator jobs from the queue."""
+
     def __init__(self, name: str, manager: JobManager) -> None:
         self.manager = manager
         self.current_job: int | None = None
@@ -365,6 +369,8 @@ class Worker:
 
 
 class TaskRunnerApp(CalculatorApp):
+    """The calculator app plus background job commands."""
+
     def __init__(self) -> None:
         super().__init__()
         self.manager = JobManager(self.calculator, self.history)
@@ -403,6 +409,7 @@ class TaskRunnerApp(CalculatorApp):
         return ScientificCalculator()
 
     def format_result(self, result):
+        """Format the result so it look nice in the terminal."""
         if isinstance(result, (tuple, list)) and result and isinstance(result[0], str):
             op = result[0]
             if op in ("fact", "fib"):
@@ -566,15 +573,12 @@ class TaskRunnerApp(CalculatorApp):
                 print(f"{worker.thread.name}: running job {worker.current_job}")
 
     def _exit(self) -> None:
-        # Wait for already queued jobs to finish.
         self.manager.queue.join()
         self.manager.stop_event.set()
         if self._workers_started:
             [worker.thread.join() for worker in self.workers]
         super()._exit()
 
-
-    # Add scientific-specific validation here.
     def handle_command(self, command: str) -> None:
         tokens = tuple(command.split())
 
