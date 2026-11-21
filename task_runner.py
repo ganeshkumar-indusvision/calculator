@@ -91,7 +91,7 @@ class ScientificCalculator(Calculator):
 
     def _validate_scientific_number(self, number: object) -> None:
         if not isinstance(number, int) or isinstance(number, bool):
-            raise TypeError("is not a valid number")
+            raise ValueError(f"{number!r} is not a valid number")
         if not Decimal(str(number)).is_finite():
             raise ValueError("is not a finite number")
 
@@ -161,9 +161,9 @@ class JobManager:
         self.history = history           
         self.jobs: dict[int, Job] = {}
         self.queue: queue.Queue[int] = queue.Queue()
-        self.lock = threading.RLock()
+        self.lock = threading.RLock() # Using this because if there is multiple locks aquring by same thread under it is should not cause  deadlock
         self.stop_event = threading.Event()
-        self._next_id: int = 1
+        self._next_id: int = 1 
         self.jobs_file = jobs_file
         self._worker_logger_init()
         
@@ -270,8 +270,8 @@ class JobManager:
             self.logger.info(f"Job {job_id} Running ({job.command} {job.operands})")
             return job
 
-        
-    def load(self,on_warning: object = None) -> None: 
+
+    def load(self) -> None: 
         """Load jobs from the file and mark unfinished one as interrupted."""
         if not self.jobs_file.exists():
             return
@@ -282,14 +282,10 @@ class JobManager:
             back_file = self.jobs_file.with_name(self.jobs_file.name + ".bak")
             try:
                 os.replace(self.jobs_file,back_file)
-                msg = f"Warning: {self.jobs_file} was not valid JSON. Renamed to {back_file.name}."
             except OSError:
-                msg = f"Warning: could not read {self.jobs_file}. Starting empty."
-            if callable(on_warning):
-                on_warning(msg)
-            return
+                raise OSError(f"Warning: could not read {self.jobs_file}. Starting empty.")
         with self.lock:
-            for _, item in data.items():
+            for item in data.values():
                 state = JobState(item["state"])
                 error = item.get("error")
                 if state in (JobState.QUEUED, JobState.RUNNING):
@@ -306,7 +302,7 @@ class JobManager:
                     finished_at=item["finished_at"],
                 )
                 self.jobs[job.id] = job
-            if self.jobs:                               # ← OUTSIDE the loop
+            if self.jobs:                             
                 self._next_id = max(self.jobs.keys()) + 1    
 
     def show_jobs(self) -> None:

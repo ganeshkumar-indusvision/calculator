@@ -1,13 +1,9 @@
 import unittest
-import math
-import logging
-from pathlib import Path
-import tempfile
-import json
 
-import calculator
 from task_runner import ScientificCalculator
 from test_data import ScientificCalculatorData
+
+
 class TestCalculator(unittest.TestCase):
 
     def setUp(self):
@@ -40,9 +36,8 @@ class TestCalculator(unittest.TestCase):
 
     def test_bad_calls(self):
         for args, exc in self.bad_call_cases:
-            with self.subTest(args=args):
-                with self.assertRaises(exc):
-                    self.calc.calculate(*args)
+            with self.subTest(args=args), self.assertRaises(exc):
+                self.calc.calculate(*args)
 
 if __name__ == "__main__":
     unittest.main()
