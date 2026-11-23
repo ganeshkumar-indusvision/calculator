@@ -1,8 +1,4 @@
 
-2. Too much complicated result
-
-3. Fix prime number (0,1 should be None, 0).
-
 4. practicaly understand use of lock
 
 ## Review-1: Addressing Comments
@@ -24,3 +20,11 @@
 
 1. prime number <= 1 returns biggest number as 0 which is wrong.
 2. Fixed it adding ValueError
+
+
+## Result should be having value but only when printing print digit if >=50
+
+1. Fixing accuracy issue with factorial with big value.
+2. validated test.
+3. Removed unwanted raise value error.
+

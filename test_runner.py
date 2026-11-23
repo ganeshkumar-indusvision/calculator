@@ -1,9 +1,14 @@
 import unittest
+import time
 
-from task_runner import ScientificCalculator
+from calculator import History
+from task_runner import (
+    ScientificCalculator,
+    JobManager,
+    Worker,
+    JobState,
+)
 from test_data import ScientificCalculatorData
-
-
 class TestCalculator(unittest.TestCase):
 
     def setUp(self):
@@ -38,7 +43,41 @@ class TestCalculator(unittest.TestCase):
         for args, exc in self.bad_call_cases:
             with self.subTest(args=args), self.assertRaises(exc):
                 self.calc.calculate(*args)
+class TestJobManager(unittest.TestCase):
+    def setUp(self):
+        self.calc = ScientificCalculator()
+        self.history = History()
+        self.manager = JobManager(self.calc, self.history)
 
+    def test_submit_get_jobs(self):
+        job_id = self.manager.submit("add", (4, 5))
+        job = self.manager.get(job_id)
+
+        self.assertEqual(job.id, job_id)
+        self.assertEqual(job.command, "add")
+        self.assertEqual(job.operands, (4, 5))
+        self.assertEqual(job.state, JobState.QUEUED)
+    def test_unique_job_ids(self):
+        first_id = self.manager.submit("add", (1, 2))
+        second_id = self.manager.submit("add", (3, 4))
+        self.assertNotEqual(first_id, second_id)
+    def test_finish_job(self):
+        job_id = self.manager.submit("add", (4, 5))
+
+        self.manager.finish(job_id, 9)
+
+        job = self.manager.get(job_id)
+        self.assertEqual(job.state, JobState.DONE)
+        self.assertEqual(job.result, 9)
+    def test_failed_job(self):
+        job_id = self.manager.submit("div", (10, 0))
+
+        self.manager.fail(job_id, "Cannot divide by zero")
+    
+        job = self.manager.get(job_id)
+        self.assertEqual(job.state, JobState.FAILED)
+        self.assertEqual(job.error, "Cannot divide by zero")
+        
 if __name__ == "__main__":
     unittest.main()
     # sci=ScientificCalculator()
