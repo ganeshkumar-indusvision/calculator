@@ -5,7 +5,7 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, getcontext
 from enum import Enum
 from pathlib import Path
 
@@ -14,13 +14,14 @@ from calculator import Calculation, Calculator, CalculatorApp, History
 JOBS_FILE = Path("output/jobs.json")
 NUM_WORKERS = 3
 WORKER_LOG = Path("output/runner.log")
-
+DEFAULT_DIGIT_LIMIT= 50
 
 class ScientificCalculator(Calculator):
     """Calculator with slow operations that suit background jobs."""
 
     def __init__(self) -> None:
         super().__init__()
+        getcontext().prec = 1_000_000
         self.operations.update({"fact": (1,self.factorial),
                                 "primes": (1,self.count_primes),
                                 "fib": (1,self.fibonacci)})
@@ -30,11 +31,21 @@ class ScientificCalculator(Calculator):
             "primes": self._check_primes,
             "fib": self._check_fib
         })
+        
     def _check_fact(self, n: int) -> None:
         if n < 0:
             raise ValueError("fact requires a non-negative number")
         if n > 200000:
             raise ValueError("fact is limited to n ≤ 200000")
+    
+    def factorial(self, num: int) -> Decimal:
+        fact = Decimal(str(1))
+        value = Decimal(str(2))
+        while(value <= num):
+            fact *= value
+            value +=1  
+        return fact
+
     def _check_primes(self, n: int) -> None:
         if n < 2:
             raise ValueError("primes requires a non-negative number and should be greater than 2")
@@ -42,15 +53,13 @@ class ScientificCalculator(Calculator):
         if n < 0:
             raise ValueError("fib requires a non-negative number")
 
-    def factorial(self, num: int) -> Decimal:
-        if num < 0:
-            raise ValueError("Factorial is not defined for negative numbers")
-        fact = Decimal(str(1))
-        value = Decimal(str(2))
-        while(value <= num):
-            fact *= value
-            value +=1  
-        return fact
+    def fibonacci(self, num: int) -> Decimal:
+        num = int(num)
+        result = Decimal(str(0))
+        value = Decimal(str(1))
+        for _ in range(num):
+            result, value = value, result + value
+        return result
 
 
     def count_primes(self, num: Decimal) -> tuple[Decimal, Decimal]:  # (count, largest)
@@ -73,34 +82,16 @@ class ScientificCalculator(Calculator):
 
         return  Decimal(str(length)),Decimal(str(last))
 
-    def fibonacci(self, num: int) -> Decimal:
-        if num < 0:
-            raise ValueError("Factorial is not defined for negative numbers")
-        num = int(num)
-        result = Decimal(str(0))
-        value = Decimal(str(1))
-        for _ in range(num):
-            result, value = value, result + value
-        return result
-
-    def _validate_digit_count(self, value: int | Decimal) -> int:
-        length = value.adjusted() + 1
-        return length if length >= 50 else int(value)
-    
     def _validate_output(self, op: str, *results: Decimal):
         if op in self.scientific_operations:
             if op == "primes":
                 results = results[0]
 
-            converted = tuple(
-                self._validate_digit_count(value)
-                for value in results
-            )
-
+            converted = tuple(int(value) for value in results)
             return converted[0] if len(converted) == 1 else converted
 
         return super()._validate_output(op, *results)
-    
+
     def _validate_number(self, number: object, op: str) -> None:
         if op in {"fact", "fib"}:
             if not isinstance(number, int) or isinstance(number, bool):
@@ -109,7 +100,10 @@ class ScientificCalculator(Calculator):
 
         super()._validate_number(number,op)
 
-
+    def check_digit(self, value: int | Decimal) -> tuple[int, bool]:
+        length = value.adjusted() + 1
+        return length, length > DEFAULT_DIGIT_LIMIT
+    
 
 class JobState(Enum):
     QUEUED = "queued"
