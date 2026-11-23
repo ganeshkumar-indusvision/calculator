@@ -85,6 +85,8 @@ class Calculator:
             raise ValueError(f"{number!r} is not a valid number")
         if not Decimal(str(number)).is_finite():
             raise ValueError(f"{number!r} is not a finite number")
+    
+    
     def _validate_output(self, op: str, *results: Decimal) -> int | float | tuple:
         """Convert whole Decimals to int, otherwise return float."""
         converted = tuple(

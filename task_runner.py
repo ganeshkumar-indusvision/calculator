@@ -36,8 +36,8 @@ class ScientificCalculator(Calculator):
         if n > 200000:
             raise ValueError("fact is limited to n ≤ 200000")
     def _check_primes(self, n: int) -> None:
-        if n < 0:
-            raise ValueError("primes requires a non-negative number")
+        if n < 2:
+            raise ValueError("primes requires a non-negative number and should be greater than 2")
     def _check_fib(self, n: int) -> None:
         if n < 0:
             raise ValueError("fib requires a non-negative number")
@@ -54,10 +54,7 @@ class ScientificCalculator(Calculator):
 
 
     def count_primes(self, num: Decimal) -> tuple[Decimal, Decimal]:  # (count, largest)
-        if num <= 1:
-            return Decimal(str(0)), Decimal(str(0))  
-        # threshold = num.sqrt().quantize(Decimal('1'), rounding=ROUND_DOWN)
-        # prime.append(2)
+
         num = int(num)
         prime = [True] * int(num+1)
         p = 2
@@ -105,7 +102,7 @@ class ScientificCalculator(Calculator):
         return super()._validate_output(op, *results)
     
     def _validate_number(self, number: object, op: str) -> None:
-        if op in self.scientific_operations:
+        if op in {"fact", "fib"}:
             if not isinstance(number, int) or isinstance(number, bool):
                 raise ValueError(f"{number!r} is not a valid integer")
             return

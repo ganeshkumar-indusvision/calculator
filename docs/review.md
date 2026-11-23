@@ -1,4 +1,3 @@
-1. Follow structed 
 
 2. Too much complicated result
 
@@ -21,3 +20,7 @@
 3. Reuse most of the feature of previous calculator functions as much as possible.
 4. Use function overiding as much as possible.
 
+### Count prime number <= 1 is a wrong implementation
+
+1. prime number <= 1 returns biggest number as 0 which is wrong.
+2. Fixed it adding ValueError

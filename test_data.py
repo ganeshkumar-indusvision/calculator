@@ -108,6 +108,7 @@ class ScientificCalculatorData(TestCalculatorData):
     "primes": [
         (10, None, (4,7)),
         (200_000, None, ( 17984,199999)),
+        (5.0,None , (3,5))
     ],
     "fib": [
         (0, None, 0),
@@ -128,9 +129,10 @@ class ScientificCalculatorData(TestCalculatorData):
             "primes": [
                 (-1,       None, ValueError),
                 (True,     None, ValueError),
-                (5.0,      None, ValueError),
                 (None,     None, ValueError),
                 ('a',      None, ValueError),
+                (1, None, ValueError),
+                (0, None, ValueError)
             ],
             "fib": [
                 (-1,       None, ValueError),
