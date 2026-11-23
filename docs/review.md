@@ -18,4 +18,6 @@
 
 1. Initial comment was use diction initialised in `__init__` block.
 2. created diction pointing to validation.
+3. Reuse most of the feature of previous calculator functions as much as possible.
+4. Use function overiding as much as possible.
 

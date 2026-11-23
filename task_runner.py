@@ -5,7 +5,7 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
-from decimal import MAX_EMAX, MIN_EMIN, Decimal, getcontext
+from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 
@@ -25,15 +25,24 @@ class ScientificCalculator(Calculator):
                                 "primes": (1,self.count_primes),
                                 "fib": (1,self.fibonacci)})
         self.scientific_operations = {"fact","primes", "fib"}
+        self.validation.update({
+            "fact":self._check_fact,
+            "primes": self._check_primes,
+            "fib": self._check_fib
+        })
+    def _check_fact(self, n: int) -> None:
+        if n < 0:
+            raise ValueError("fact requires a non-negative number")
+        if n > 200000:
+            raise ValueError("fact is limited to n ≤ 200000")
+    def _check_primes(self, n: int) -> None:
+        if n < 0:
+            raise ValueError("primes requires a non-negative number")
+    def _check_fib(self, n: int) -> None:
+        if n < 0:
+            raise ValueError("fib requires a non-negative number")
 
-        # Decimal datatype functions to keep precision.
-        getcontext().prec = 50
-        getcontext().Emax = MAX_EMAX
-        getcontext().Emin = MIN_EMIN
-
-
-
-    def factorial(self, num: int) -> tuple[Decimal,None]: # Result, None
+    def factorial(self, num: int) -> Decimal:
         if num < 0:
             raise ValueError("Factorial is not defined for negative numbers")
         fact = Decimal(str(1))
@@ -41,7 +50,7 @@ class ScientificCalculator(Calculator):
         while(value <= num):
             fact *= value
             value +=1  
-        return (fact,None,)
+        return fact
 
 
     def count_primes(self, num: Decimal) -> tuple[Decimal, Decimal]:  # (count, largest)
@@ -65,9 +74,9 @@ class ScientificCalculator(Calculator):
                 last = i
                 length +=1 
 
-        return Decimal(str(last)), Decimal(str(length))
+        return  Decimal(str(length)),Decimal(str(last))
 
-    def fibonacci(self, num: int) -> tuple[Decimal,None]: # Result, None
+    def fibonacci(self, num: int) -> Decimal:
         if num < 0:
             raise ValueError("Factorial is not defined for negative numbers")
         num = int(num)
@@ -75,58 +84,34 @@ class ScientificCalculator(Calculator):
         value = Decimal(str(1))
         for _ in range(num):
             result, value = value, result + value
-        return result,None
-
-    def _validate_digit_count(self,value: int|Decimal) -> tuple[int,bool] :
-        lenght =  value.adjusted()+ 1
-        result = (lenght,True,) if lenght >= 50 else (int(value),False,)
         return result
 
-    def _validate_scientific_output(self, op: str,*args: object) -> tuple:
-        raw = args[0]
-        if op=="primes":
-            # for arg in args:
-            return (op, *(self._validate_digit_count(value) for value in raw))
-        return (op, self._validate_digit_count(raw[0] ))
+    def _validate_digit_count(self, value: int | Decimal) -> int:
+        length = value.adjusted() + 1
+        return length if length >= 50 else int(value)
+    
+    def _validate_output(self, op: str, *results: Decimal):
+        if op in self.scientific_operations:
+            if op == "primes":
+                results = results[0]
 
-    def _validate_scientific_number(self, number: object) -> None:
-        if not isinstance(number, int) or isinstance(number, bool):
-            raise ValueError(f"{number!r} is not a valid number")
-        if not Decimal(str(number)).is_finite():
-            raise ValueError("is not a finite number")
+            converted = tuple(
+                self._validate_digit_count(value)
+                for value in results
+            )
 
+            return converted[0] if len(converted) == 1 else converted
 
-    def _validate_scientific_input(self, *args: object) -> bool:
-        if not args:
-            raise ValueError("No operation given")
+        return super()._validate_output(op, *results)
+    
+    def _validate_number(self, number: object, op: str) -> None:
+        if op in self.scientific_operations:
+            if not isinstance(number, int) or isinstance(number, bool):
+                raise ValueError(f"{number!r} is not a valid integer")
+            return
 
-        op = args[0]
-        if not isinstance(op, str) or op not in self.scientific_operations:
-            if op not in self.operations:
-                raise ValueError(f"Unknown operation: {op}")
-            return False
+        super()._validate_number(number,op)
 
-        operands = [v for v in args[1:] if v is not None]
-        n, _ = self.operations[op]
-        if len(operands) != n:
-            raise ValueError(f"{op} takes exactly {n} argument{'s' if n != 1 else ''}")
-
-        for value in operands:
-            self._validate_scientific_number(value)
-
-        if operands[0] <0:
-            raise ValueError("Value should be <= 0")
-        if op == "fact" and operands[0]>= 200000:
-                raise ValueError("fact is limited to n ≤ 200000")
-        return True
-        
-    def calculate(self, *args: object) -> int | float:
-        """Validate the request, run the operation, and returns a clean result."""
-        if self._validate_scientific_input(*args):
-            op = str(args[0])
-            operands = [Decimal(str(v)) for v in args[1:] if v is not None]
-            return self._validate_scientific_output(op,self.operations[op][1](*operands))
-        return super().calculate(*args)
 
 
 class JobState(Enum):
@@ -225,8 +210,8 @@ class JobManager:
             job.finished_at = time.time()
             job.result = result
             self.record_calculation(job.command, job.operands, result)
-            self.save()
             job.state = JobState.DONE
+            self.save()
             self.logger.info(f"Job {job_id} Finished ({job.command} {job.operands} = {result})")
 
     def fail(self, job_id: int, error: str) -> None: 
@@ -236,21 +221,21 @@ class JobManager:
             job = self.jobs[job_id]
             job.finished_at = time.time()
             job.error = error
-            self.save()
             job.state = JobState.FAILED
+            self.save()
             self.logger.error(f"Job {job_id} Failed ({job.command} {job.operands} Error = {error})")
     def save(self) -> None: 
-        data = {str(jid):{
-            "id": j.id,
-            "command": j.command,
-            "operands":list(j.operands),
-            "state":j.state.value,
-            "result":j.result,
-            "error":j.error,
-            "started_at":j.started_at,
-            "finished_at":j.finished_at,
-          }
-          for jid,j in self.jobs.items()
+        # Currenty this i feel need iteration we can improve this problem.
+        data = {str(job_id):{
+            "id": job.id,
+            "command": job.command,
+            "operands":tuple(job.operands),
+            "state":job.state.value,
+            "result":job.result,
+            "error":job.error,
+            "started_at":job.started_at,
+            "finished_at":job.finished_at,}
+          for job_id,job in self.jobs.items()
         }
         self.jobs_file.parent.mkdir(parents= True,exist_ok=True)
         temp_file = self.jobs_file.with_name(self.jobs_file.name + ".tmp")

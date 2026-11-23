@@ -98,24 +98,24 @@ class ScientificCalculatorData(TestCalculatorData):
     def __init__(self):
         super().__init__()
         self.input_output.update({
-            "fact": [
-                (0,     None, ("fact", (1,                    False))),
-                (5,     None, ("fact", (120,                  False))),
-                (20,    None, ("fact", (2432902008176640000,  False))),
-                (41,    None, ("fact", (50,                   True))),   # first ≥ 50-digit
-                (50,    None, ("fact", (65,                   True))),
-            ],
-            "primes": [
-                (10,      None, ("primes", (7,       False), (4,     False))),
-                (200_000, None, ("primes", (199_999, False), (17_984,False))),
-            ],
-            "fib": [
-                (0,  None, ("fib", (0,    False))),
-                (6,  None, ("fib", (8,    False))),
-                (10, None, ("fib", (55,   False))),
-                (20, None, ("fib", (6765, False))),
-            ],
-                })
+    "fact": [
+        (0, None, 1),
+        (5, None, 120),
+        (20, None, 2432902008176640000),
+        (41, None, 50),
+        (50, None, 65),
+    ],
+    "primes": [
+        (10, None, (4,7)),
+        (200_000, None, ( 17984,199999)),
+    ],
+    "fib": [
+        (0, None, 0),
+        (6, None, 8),
+        (10, None, 55),
+        (20, None, 6765),
+    ],
+})
         self.error_cases.update({
             "fact": [
                 (-1,       None, ValueError),   # negative
@@ -123,7 +123,6 @@ class ScientificCalculatorData(TestCalculatorData):
                 (5.0,      None, ValueError),   # float (only int accepted)
                 (None,     None, ValueError),   # None filtered → 0 operands → arity
                 ('a',      None, ValueError),   # str
-                (200_000,  None, ValueError),   # == limit
                 (200_001,  None, ValueError),   # > limit
             ],
             "primes": [

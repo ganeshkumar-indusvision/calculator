@@ -1,10 +1,9 @@
 # calculator.py
 import json
 import logging
-import readline
 from collections import namedtuple
-from pathlib import Path
 from decimal import Decimal, ROUND_FLOOR, InvalidOperation
+from pathlib import Path
 
 DATA_FILE = Path("output/calculator_data.json")
 LOG_FILE = Path("logs/calculator.log")
@@ -24,6 +23,8 @@ class JsonFormatter(logging.Formatter):
             "name": record.name,
             "message": record.getMessage(),
         })
+
+
 
 class Calculator:
     """Performs arithmetic operations."""
@@ -74,31 +75,33 @@ class Calculator:
             raise ValueError(f"{op} takes exactly {n} argument{'s' if n != 1 else ''}")
 
         for v in operands:
-            self._validate_number(v)
+            self._validate_number(v,op)
         validator = self.validation.get(op)
         if validator is not None:
             validator(*operands)
+
+    def _validate_number(self, number: object, op: str) -> None:
+        if not isinstance(number, (int, float, Decimal)) or isinstance(number, bool):
+            raise ValueError(f"{number!r} is not a valid number")
+        if not Decimal(str(number)).is_finite():
+            raise ValueError(f"{number!r} is not a finite number")
+    def _validate_output(self, op: str, *results: Decimal) -> int | float | tuple:
+        """Convert whole Decimals to int, otherwise return float."""
+        converted = tuple(
+            int(result) if result == result.to_integral_value()
+            else round(float(result), 3)
+            for result in results
+        )
+
+        return converted[0] if len(converted) == 1 else converted
 
     def calculate(self, *args: object) -> int | float:
         """Validate the request, run the operation, and return a clean result."""
         self._validate_input(*args)
         op = str(args[0])
         operands = [Decimal(str(v)) for v in args[1:] if v is not None]
-        return self._validate_output(self.operations[op][1](*operands))
+        return self._validate_output(op, self.operations[op][1](*operands))
     
-    def _validate_output(self, result: Decimal) -> int | float:
-        """Convert a whole Decimal to int, otherwise return float."""
-        return int(result) if result == result.to_integral_value() else round(float(result),3)
-
-    def _validate_number(self, number: object) -> None:
-        """Raise if number is not a finite int/float/Decimal (bool is rejected)."""
-        if not isinstance(number, (int, float, Decimal)) or isinstance(number, bool):
-            raise ValueError(f"{number!r} is not a valid number")
-        if not Decimal(str(number)).is_finite():
-            raise ValueError(f"{number!r} is not a finite number")
-
-
-
 class History:
     """Stores past calculations in order."""
 
