@@ -1,15 +1,17 @@
 import unittest
 import time
 import tempfile
-
+import io
+from contextlib import redirect_stdout
 from pathlib import Path
 from calculator import History
 from task_runner import (
     ScientificCalculator,
     JobManager,
     Worker,
-    JobState,
+    JobState,Job,
 )
+import threading
 from test_data import ScientificCalculatorData, JobManagerData
 class TestJobManager(unittest.TestCase):
 
@@ -17,27 +19,143 @@ class TestJobManager(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.data = JobManagerData()
         self.test_dir = Path(self.temp_dir.name)
-    
+
         self.jobs_file, self.history_file = (
             self.data.create_initial_files(self.test_dir)
         )
-    
+
         self.calc = ScientificCalculator()
         self.history = History()
-    
+
         self.memory = self.history.load(self.history_file)
-    
+
         self.manager = JobManager(
             self.calc,
             self.history,
             self.jobs_file
         )
-    
+
         self.manager.load()
-    
+
     def tearDown(self):
         self.temp_dir.cleanup()
+    def test_submit_adds_job_to_queue(self):
+        job_id = self.manager.submit("add", (4, 5))
+        queued_id = self.manager.queue.get_nowait()
+        self.assertEqual(queued_id, job_id)
+        
+    def test_get_invalid_job(self):
+        with self.assertRaises(ValueError):
+            self.manager.get(999)
+    def test_mark_running(self):
+        job_id = self.manager.submit("add", (4, 5))
+    
+        job = self.manager.mark_running(job_id)
 
+        self.assertEqual(job.state, JobState.RUNNING)
+        self.assertIsNotNone(job.started_at)
+    # this should change running to failed and makr error as intruped (this should be ideally start with again makring it queue ideally)
+    def test_interrupted_jobs(self):
+        queued_job = self.manager.get(2)
+        running_job = self.manager.get(3)
+
+        self.assertEqual(queued_job.state, JobState.FAILED)
+        self.assertEqual(queued_job.error, "interrupted")
+
+        self.assertEqual(running_job.state, JobState.FAILED)
+        self.assertEqual(running_job.error, "interrupted")
+    
+    # test next id value should be 5 as we wrote 1-4 jobs
+    def test_next_id_after_loading(self):
+        job_id = self.manager.submit("add", (10, 20))
+        self.assertEqual(job_id, 5)
+    def test_save_and_load_jobs(self):
+        job_id = self.manager.submit("add", (5, 6))
+
+        new_manager = JobManager(
+            self.calc,
+            self.history,
+            self.jobs_file
+        )
+        new_manager.load()
+
+        job = new_manager.get(job_id)
+
+        self.assertEqual(job.command, "add")
+        self.assertEqual(job.operands, (5, 6))
+        self.assertEqual(job.state, JobState.FAILED)
+        self.assertEqual(job.error, "interrupted")
+    def test_record_calculation(self):
+        self.manager.record_calculation("add", (2, 3), 5)
+
+        self.assertEqual(len(self.history), 2)
+        self.assertEqual(self.history.last_result(), 5)
+    def test_job_duration_not_started(self):
+        job = Job(id=1, command="add", operands=(4, 5))
+
+        self.assertIsNone(job.duration)
+    def test_show_jobs(self):
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            self.manager.show_jobs()
+
+        expected = (
+            " 1  add 4 5          DONE    1.00s\n"
+            " 2  primes 10        FAILED  interrupted\n"
+            " 3  fib 10           FAILED  interrupted\n"
+            " 4  div 10 0         FAILED  Error: cannot divide by zero\n"
+        )
+
+        self.assertEqual(output.getvalue(), expected)
+    def test_finish_invalid_job(self):
+        self.manager.finish(999, 100)
+
+        self.assertNotIn(999, self.manager.jobs)
+
+    def test_fail_invalid_job(self):
+        self.manager.fail(999, "Some error")
+
+        self.assertNotIn(999, self.manager.jobs)
+    def test_show_empty_jobs(self):
+        manager = JobManager(
+            self.calc,
+            self.history,
+            self.test_dir / "empty.json"
+        )
+
+        output = io.StringIO()
+    
+        with redirect_stdout(output):
+            manager.show_jobs()
+    
+        self.assertIn("No jobs yet", output.getvalue())
+    def test_concurrent_submissions(self):
+        
+
+        job_ids = []
+        result_lock = threading.Lock()
+
+        def submit_jobs():
+            for _ in range(20):
+                job_id = self.manager.submit("add", (1, 2))
+
+                with result_lock:
+                    job_ids.append(job_id)
+
+        threads = [
+            threading.Thread(target=submit_jobs)
+            for _ in range(5)
+        ]
+
+        for thread in threads:
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(len(job_ids), 100)
+        self.assertEqual(len(set(job_ids)), 100)
     def test_initial_history_loaded(self):
         self.assertEqual(len(self.history), 1)
         self.assertEqual(self.history.last_result(), 12)
@@ -62,6 +180,16 @@ class TestJobManager(unittest.TestCase):
         job = self.manager.get(job_id)
         self.assertEqual(job.state, JobState.DONE)
         self.assertEqual(job.result, 9)
+    def test_job_duration(self):
+        job = Job(
+            id=1,
+            command="add",
+            operands=(4, 5),
+            started_at=100.0,
+            finished_at=102.5,
+        )
+    
+        self.assertEqual(job.duration, 2.5)
     def test_failed_job(self):
         job_id = self.manager.submit("div", (10, 0))
 

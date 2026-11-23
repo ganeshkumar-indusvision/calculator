@@ -259,9 +259,10 @@ class JobManager:
         except (json.JSONDecodeError, OSError):
             back_file = self.jobs_file.with_name(self.jobs_file.name + ".bak")
             try:
-                os.replace(self.jobs_file,back_file)
+                os.replace(self.jobs_file, back_file)
             except OSError:
                 raise OSError(f"Warning: could not read {self.jobs_file}. Starting empty.")
+                data = {} # Need to make sure empty data is created.
         with self.lock:
             for item in data.values():
                 state = JobState(item["state"])
