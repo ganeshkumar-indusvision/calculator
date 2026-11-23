@@ -1,6 +1,6 @@
 import unittest
 import time
-
+import tempfile
 from calculator import History
 from task_runner import (
     ScientificCalculator,
@@ -8,7 +8,9 @@ from task_runner import (
     Worker,
     JobState,
 )
-from test_data import ScientificCalculatorData
+from test_data import (ScientificCalculatorData,create_initial_files)
+import Path
+
 class TestCalculator(unittest.TestCase):
 
     def setUp(self):
@@ -45,9 +47,14 @@ class TestCalculator(unittest.TestCase):
                 self.calc.calculate(*args)
 class TestJobManager(unittest.TestCase):
     def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.data = ScientificCalculatorData()
+        self.jobs_file, self.history_file = self.data.create_initial_filesPath(self.temp_dir.name)
         self.calc = ScientificCalculator()
         self.history = History()
-        self.manager = JobManager(self.calc, self.history)
+        self.memory = self.history.load(self.history_file)
+        self.manager = JobManager(self.calc, self.history,self.jobs_file)
+        self.manager.load()
 
     def test_submit_get_jobs(self):
         job_id = self.manager.submit("add", (4, 5))
@@ -78,6 +85,9 @@ class TestJobManager(unittest.TestCase):
         self.assertEqual(job.state, JobState.FAILED)
         self.assertEqual(job.error, "Cannot divide by zero")
         
+        
+    def tearDown(self):
+        self.temp_dir.cleanup()
 if __name__ == "__main__":
     unittest.main()
     # sci=ScientificCalculator()
