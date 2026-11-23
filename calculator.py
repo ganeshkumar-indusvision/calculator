@@ -40,6 +40,44 @@ class Calculator:
             "sqrt": (1, lambda a: a.sqrt()),
             "abs": (1, lambda a: abs(a)),
         }
+        self.validation = {
+            "div":self._check_divisor,
+            "mod":self._check_divisor,
+            "sqrt":self._check_sqrt,
+            "pow":self._check_pow,
+        }
+        
+    def _check_divisor(self,a:float,b=int|float) -> None:
+        if b == 0 :
+            raise ZeroDivisionError("Error: cannot divide by zero")
+    def _check_sqrt(self, a:int|float) -> None:
+        if a < 0:
+            raise ValueError("Error: cannot take square root of a negative number")
+    def _check_pow(self, a: int|float, b: int|float) -> None:
+        if a == 0 and b < 0:
+            raise ZeroDivisionError("Error: cannot raise 0 to a negative power")
+        if a < 0 and Decimal(str(b)) != Decimal(str(b)).to_integral_value():
+            raise ValueError("Error: cannot raise a negative number to a fractional power")
+        
+    def _validate_input(self, *args: object) -> None:
+        """Validate an input request before running the operation."""
+        if not args:
+            raise ValueError("No operation given")
+
+        op = args[0]
+        if not isinstance(op, str) or op not in self.operations:
+            raise ValueError(f"Unknown operation: {op}")
+
+        operands = [v for v in args[1:] if v is not None]
+        n, _ = self.operations[op]
+        if len(operands) != n:
+            raise ValueError(f"{op} takes exactly {n} argument{'s' if n != 1 else ''}")
+
+        for v in operands:
+            self._validate_number(v)
+        validator = self.validation.get(op)
+        if validator is not None:
+            validator(*operands)
 
     def calculate(self, *args: object) -> int | float:
         """Validate the request, run the operation, and return a clean result."""
@@ -59,31 +97,6 @@ class Calculator:
         if not Decimal(str(number)).is_finite():
             raise ValueError(f"{number!r} is not a finite number")
 
-    def _validate_input(self, *args: object) -> None:
-        """Validate an input request before running the operation."""
-        if not args:
-            raise ValueError("No operation given")
-
-        op = args[0]
-        if not isinstance(op, str) or op not in self.operations:
-            raise ValueError(f"Unknown operation: {op}")
-
-        operands = [v for v in args[1:] if v is not None]
-        n, _ = self.operations[op]
-        if len(operands) != n:
-            raise ValueError(f"{op} takes exactly {n} argument{'s' if n != 1 else ''}")
-
-        for v in operands:
-            self._validate_number(v)
-
-        if op in ("div", "mod") and operands[1] == 0:
-            raise ZeroDivisionError("Error: cannot divide by zero")
-        if op == "sqrt" and operands[0] < 0:
-            raise ValueError("Error: cannot take square root of a negative number")
-        if op == "pow" and operands[0] == 0 and operands[1] < 0:
-            raise ZeroDivisionError("Error: cannot raise 0 to a negative power")
-        if op == "pow" and operands[0] < 0 and Decimal(str(operands[1])) != Decimal(str(operands[1])).to_integral_value():
-            raise ValueError("Error: cannot raise a negative number to a fractional power")
 
 
 class History:
