@@ -1,6 +1,8 @@
 import unittest
 import time
 import tempfile
+
+from pathlib import Path
 from calculator import History
 from task_runner import (
     ScientificCalculator,
@@ -8,9 +10,67 @@ from task_runner import (
     Worker,
     JobState,
 )
-from test_data import (ScientificCalculatorData,create_initial_files)
-import Path
+from test_data import ScientificCalculatorData, JobManagerData
+class TestJobManager(unittest.TestCase):
 
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.data = JobManagerData()
+        self.test_dir = Path(self.temp_dir.name)
+    
+        self.jobs_file, self.history_file = (
+            self.data.create_initial_files(self.test_dir)
+        )
+    
+        self.calc = ScientificCalculator()
+        self.history = History()
+    
+        self.memory = self.history.load(self.history_file)
+    
+        self.manager = JobManager(
+            self.calc,
+            self.history,
+            self.jobs_file
+        )
+    
+        self.manager.load()
+    
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_initial_history_loaded(self):
+        self.assertEqual(len(self.history), 1)
+        self.assertEqual(self.history.last_result(), 12)
+        self.assertEqual(self.memory, 7.5)
+    def test_submit_get_jobs(self):
+        job_id = self.manager.submit("add", (4, 5))
+        job = self.manager.get(job_id)
+
+        self.assertEqual(job.id, job_id)
+        self.assertEqual(job.command, "add")
+        self.assertEqual(job.operands, (4, 5))
+        self.assertEqual(job.state, JobState.QUEUED)
+    def test_unique_job_ids(self):
+        first_id = self.manager.submit("add", (1, 2))
+        second_id = self.manager.submit("add", (3, 4))
+        self.assertNotEqual(first_id, second_id)
+    def test_finish_job(self):
+        job_id = self.manager.submit("add", (4, 5))
+
+        self.manager.finish(job_id, 9)
+
+        job = self.manager.get(job_id)
+        self.assertEqual(job.state, JobState.DONE)
+        self.assertEqual(job.result, 9)
+    def test_failed_job(self):
+        job_id = self.manager.submit("div", (10, 0))
+
+        self.manager.fail(job_id, "Cannot divide by zero")
+    
+        job = self.manager.get(job_id)
+        self.assertEqual(job.state, JobState.FAILED)
+        self.assertEqual(job.error, "Cannot divide by zero")
+     
 class TestCalculator(unittest.TestCase):
 
     def setUp(self):
@@ -45,49 +105,8 @@ class TestCalculator(unittest.TestCase):
         for args, exc in self.bad_call_cases:
             with self.subTest(args=args), self.assertRaises(exc):
                 self.calc.calculate(*args)
-class TestJobManager(unittest.TestCase):
-    def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.data = ScientificCalculatorData()
-        self.jobs_file, self.history_file = self.data.create_initial_filesPath(self.temp_dir.name)
-        self.calc = ScientificCalculator()
-        self.history = History()
-        self.memory = self.history.load(self.history_file)
-        self.manager = JobManager(self.calc, self.history,self.jobs_file)
-        self.manager.load()
+   
 
-    def test_submit_get_jobs(self):
-        job_id = self.manager.submit("add", (4, 5))
-        job = self.manager.get(job_id)
-
-        self.assertEqual(job.id, job_id)
-        self.assertEqual(job.command, "add")
-        self.assertEqual(job.operands, (4, 5))
-        self.assertEqual(job.state, JobState.QUEUED)
-    def test_unique_job_ids(self):
-        first_id = self.manager.submit("add", (1, 2))
-        second_id = self.manager.submit("add", (3, 4))
-        self.assertNotEqual(first_id, second_id)
-    def test_finish_job(self):
-        job_id = self.manager.submit("add", (4, 5))
-
-        self.manager.finish(job_id, 9)
-
-        job = self.manager.get(job_id)
-        self.assertEqual(job.state, JobState.DONE)
-        self.assertEqual(job.result, 9)
-    def test_failed_job(self):
-        job_id = self.manager.submit("div", (10, 0))
-
-        self.manager.fail(job_id, "Cannot divide by zero")
-    
-        job = self.manager.get(job_id)
-        self.assertEqual(job.state, JobState.FAILED)
-        self.assertEqual(job.error, "Cannot divide by zero")
-        
-        
-    def tearDown(self):
-        self.temp_dir.cleanup()
 if __name__ == "__main__":
     unittest.main()
     # sci=ScientificCalculator()

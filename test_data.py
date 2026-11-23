@@ -151,71 +151,71 @@ class ScientificCalculatorData(TestCalculatorData):
             (("fib",),          ValueError),
             (("fib", 6, 7),     ValueError),
         ])
+class JobManagerData():
+    def create_initial_files(self, directory: Path):
+        directory.mkdir(parents=True, exist_ok=True)
 
-def create_initial_files(self, directory: Path):
-    directory.mkdir(parents=True, exist_ok=True)
+        jobs_file = directory / "jobs.json"
+        history_file = directory / "calculator_data.json"
 
-    jobs_file = directory / "jobs.json"
-    history_file = directory / "calculator_data.json"
-
-    jobs = {
-        "1": {
-            "id": 1,
-            "command": "add",
-            "operands": [4, 5],
-            "state": "DONE",
-            "result": 9,
-            "error": None,
-            "started_at": 1000.0,
-            "finished_at": 1001.0
-        },
-        "2": {
-            "id": 2,
-            "command": "primes",
-            "operands": [10],
-            "state": "QUEUED",
-            "result": None,
-            "error": None,
-            "started_at": None,
-            "finished_at": None
-        },
-        "3": {
-            "id": 3,
-            "command": "fib",
-            "operands": [10],
-            "state": "RUNNING",
-            "result": None,
-            "error": None,
-            "started_at": 1002.0,
-            "finished_at": None
-        },
-        "4": {
-            "id": 4,
-            "command": "div",
-            "operands": [10, 0],
-            "state": "FAILED",
-            "result": None,
-            "error": "Error: cannot divide by zero",
-            "started_at": 1003.0,
-            "finished_at": 1004.0
-        }
-    }
-
-    history = {
-        "memory": 7.5,
-        "history": [
-            {
-                "op": "mul",
-                "operands": [3, 4],
-                "result": 12
+        jobs = {
+            "1": {
+                "id": 1,
+                "command": "add",
+                "operands": [4, 5],
+                "state": "done",
+                "result": 9,
+                "error": None,
+                "started_at": 1000.0,
+                "finished_at": 1001.0
+            },
+            "2": {
+                "id": 2,
+                "command": "primes",
+                "operands": [10],
+                "state": "queued",
+                "result": None,
+                "error": None,
+                "started_at": None,
+                "finished_at": None
+            },
+            "3": {
+                "id": 3,
+                "command": "fib",
+                "operands": [10],
+                "state": "running",
+                "result": None,
+                "error": None,
+                "started_at": 1002.0,
+                "finished_at": None
+            },
+            "4": {
+                "id": 4,
+                "command": "div",
+                "operands": [10, 0],
+                "state": "failed",
+                "result": None,
+                "error": "Error: cannot divide by zero",
+                "started_at": 1003.0,
+                "finished_at": 1004.0
             }
-        ]
-    }
+        }
 
-    with open(jobs_file, "w", encoding="utf-8") as file:
-        json.dump(jobs, file, indent=2)
+        history = {
+            "memory": 7.5,
+            "history": [
+                {
+                    "op": "mul",
+                    "operands": [3, 4],
+                    "result": 12
+                }
+            ]
+        }
 
-    with open(history_file, "w", encoding="utf-8") as file:
-        json.dump(history, file, indent=2)
+        with open(jobs_file, "w", encoding="utf-8") as file:
+            json.dump(jobs, file, indent=2)
 
-    return jobs_file, history_file
+        with open(history_file, "w", encoding="utf-8") as file:
+            json.dump(history, file, indent=2)
+
+        return jobs_file, history_file
