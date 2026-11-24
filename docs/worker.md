@@ -302,16 +302,16 @@ Before the final review, temporarily remove the lock around `History` and the jo
 
 ## Acceptance criteria
 
-- [ ] All Project 1 commands and tests still work unchanged
+- [x] All Project 1 commands and tests still work unchanged
 - [ ] All 14 functional requirements work as shown in the sample session
-- [ ] The prompt stays responsive while `primes 2000000` runs
-- [ ] `ScientificCalculator` and `TaskRunnerApp` inherit from Project 1 classes; no copied code
-- [ ] Finished jobs appear in `history` and `stats`
-- [ ] Shared data is only touched inside `with self.lock:`, and no calculation runs while holding it
-- [ ] `quit` and Ctrl+C both shut down cleanly with no lost jobs
-- [ ] A failing job never crashes a worker
-- [ ] Jobs survive a restart via `jobs.json`; no database, no third-party packages
-- [ ] At least 15 new passing tests, including concurrency, shutdown and batch tests
+- [x] The prompt stays responsive while `primes 2000000` runs
+- [x] `ScientificCalculator` and `TaskRunnerApp` inherit from Project 1 classes; no copied code
+- [x] Finished jobs appear in `history` and `stats`
+- [x] Shared data is only touched inside `with self.lock:`, and no calculation runs while holding it
+- [x] `quit` and Ctrl+C both shut down cleanly with no lost jobs
+- [x] A failing job never crashes a worker
+- [x] Jobs survive a restart via `jobs.json`; no database, no third-party packages
+- [x] At least 15 new passing tests, including concurrency, shutdown and batch tests
 - [ ] README includes the race condition write-up
 
 ## Deliverables

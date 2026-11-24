@@ -13,6 +13,53 @@ from task_runner import (
 )
 import threading
 from test_data import ScientificCalculatorData, JobManagerData
+
+
+
+class TestWorker(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.data = JobManagerData()
+        self.test_dir = Path(self.temp_dir.name)
+
+        self.jobs_file, self.history_file = (
+            self.data.create_initial_files(self.test_dir)
+        )
+
+        self.calc = ScientificCalculator()
+        self.history = History()
+        self.memory = self.history.load(self.history_file)
+
+        self.manager = JobManager(
+            self.calc,
+            self.history,
+            self.jobs_file
+        )
+        self.manager.load()
+
+        self.workers = [
+            Worker(f"Worker-{i}", self.manager)
+            for i in range(1, 4)
+        ]
+    def start_workers(self):
+        for worker in self.workers:
+            worker.thread.start()
+            
+    def stop_workers(self):
+        self.manager.stop_event.set()
+        for worker in self.workers:
+            if worker.thread.is_alive():
+                worker.thread.join(timeout=2)
+
+    def test_worker_initialization(self):
+        worker = self.workers[0]
+        self.assertIs(worker.manager, self.manager)
+        self.assertIsNone(worker.current_job)
+        self.assertEqual(worker.thread.name, "Worker-1")
+        self.assertFalse(worker.thread.is_alive())
+
+
+        
 class TestJobManager(unittest.TestCase):
 
     def setUp(self):
