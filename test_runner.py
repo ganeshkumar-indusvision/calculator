@@ -51,6 +51,41 @@ class TestWorker(unittest.TestCase):
             if worker.thread.is_alive():
                 worker.thread.join(timeout=2)
 
+
+    def test_worker_handles_calculation_error(self):
+        job_id = self.manager.submit("div", (10, 0))
+        self.start_workers()
+
+        self.manager.queue.join()
+
+        job = self.manager.get(job_id)
+        self.assertEqual(job.state, JobState.FAILED)
+        self.assertIsNotNone(job.error)
+
+    def test_worker_processes_multiple_jobs(self):
+        job_ids = [
+            self.manager.submit("add", (i, 10))
+            for i in range(5)
+        ]
+
+        self.start_workers()
+        self.manager.queue.join()
+        i = 0
+        for job_id in job_ids:
+
+            self.assertEqual(
+                self.manager.get(job_id).state,
+                JobState.DONE
+            )
+            self.assertEqual(
+                self.manager.get(job_id).result,
+                (i+10)
+            )
+            i = i +1
+
+    def tearDown(self):
+        self.stop_workers()
+        self.temp_dir.cleanup()
     def test_worker_initialization(self):
         worker = self.workers[0]
         self.assertIs(worker.manager, self.manager)
@@ -58,8 +93,17 @@ class TestWorker(unittest.TestCase):
         self.assertEqual(worker.thread.name, "Worker-1")
         self.assertFalse(worker.thread.is_alive())
 
+    def test_worker_executes_job(self):
+        job_id = self.manager.submit("add", (4, 5))
+        self.start_workers()
 
-        
+        self.manager.queue.join()
+
+        job = self.manager.get(job_id)
+        self.assertEqual(job.state, JobState.DONE)
+        self.assertEqual(job.result, 9)
+
+
 class TestJobManager(unittest.TestCase):
 
     def setUp(self):
