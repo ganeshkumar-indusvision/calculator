@@ -9,7 +9,7 @@ from task_runner import (
     ScientificCalculator,
     JobManager,
     Worker,
-    JobState,Job,
+    JobState,Job,Utils
 )
 import threading
 from test_data import ScientificCalculatorData, JobManagerData
@@ -21,7 +21,7 @@ class TestWorker(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.data = JobManagerData()
         self.test_dir = Path(self.temp_dir.name)
-
+        self.utils = Utils()
         self.jobs_file, self.history_file = (
             self.data.create_initial_files(self.test_dir)
         )
@@ -33,6 +33,7 @@ class TestWorker(unittest.TestCase):
         self.manager = JobManager(
             self.calc,
             self.history,
+            self.utils,
             self.jobs_file
         )
         self.manager.load()
@@ -178,12 +179,13 @@ class TestJobManager(unittest.TestCase):
 
         self.calc = ScientificCalculator()
         self.history = History()
-
+        self.utils = Utils()
         self.memory = self.history.load(self.history_file)
 
         self.manager = JobManager(
             self.calc,
             self.history,
+            self.utils,
             self.jobs_file
         )
 
@@ -227,6 +229,7 @@ class TestJobManager(unittest.TestCase):
         new_manager = JobManager(
             self.calc,
             self.history,
+            self.utils,
             self.jobs_file
         )
         new_manager.load()
@@ -273,6 +276,7 @@ class TestJobManager(unittest.TestCase):
         manager = JobManager(
             self.calc,
             self.history,
+            self.utils,
             self.test_dir / "empty.json"
         )
 

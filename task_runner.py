@@ -5,7 +5,7 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
-from decimal import Decimal, getcontext
+from decimal import Decimal, localcontext
 from enum import Enum
 from pathlib import Path
 
@@ -21,7 +21,8 @@ class ScientificCalculator(Calculator):
 
     def __init__(self) -> None:
         super().__init__()
-        getcontext().prec = 1_000_000
+        # removed Decimal becuase very low performance (Not good for long heavy computation)
+        # getcontext().prec = 1_000_000
         self.operations.update({"fact": (1,self.factorial),
                                 "primes": (1,self.count_primes),
                                 "fib": (1,self.fibonacci)})
@@ -39,12 +40,15 @@ class ScientificCalculator(Calculator):
             raise ValueError("fact is limited to n ≤ 200000")
     
     def factorial(self, num: int) -> Decimal:
-        fact = Decimal(str(1))
-        value = Decimal(str(2))
-        while(value <= num):
-            fact *= value
-            value +=1  
-        return fact
+        with localcontext(prec=1_000_000):
+            fact = Decimal(str(1))
+            value = Decimal(str(2))
+        # fact = 1
+        # value =2
+            while(value <= num):
+                fact *= value
+                value +=1  
+            return fact
 
     def _check_primes(self, n: int) -> None:
         if n < 2:
@@ -54,40 +58,44 @@ class ScientificCalculator(Calculator):
             raise ValueError("fib requires a non-negative number")
 
     def fibonacci(self, num: int) -> Decimal:
-        num = int(num)
-        result = Decimal(str(0))
-        value = Decimal(str(1))
-        for _ in range(num):
-            result, value = value, result + value
-        return result
+        with localcontext(prec=1_000_000):
+            num = int(num)
+            result = Decimal(str(0))
+            value = Decimal(str(1))
+            # result = 0
+            # value = 1
+            for _ in range(num):
+                result, value = value, result + value
+            return result
 
 
     def count_primes(self, num: Decimal) -> tuple[Decimal, Decimal]:  # (count, largest)
-
-        num = int(num)
-        prime = [True] * int(num+1)
-        p = 2
-        length = 0
-        while (p*p<=num):
-            if prime[p]:
-
-                for i in range(p*p,num+1,p):
-                    prime[i]=False
-
-            p+=1
-        for i in range(2,num+1,1):
-            if prime[i]:
-                last = i
-                length +=1 
-
-        return  Decimal(str(length)),Decimal(str(last))
+        with localcontext(prec=1_000_000):
+            num = int(num)
+            prime = [True] * int(num+1)
+            p = 2
+            length = 0
+            while (p*p<=num):
+                if prime[p]:
+                
+                    for i in range(p*p,num+1,p):
+                        prime[i]=False
+    
+                p+=1
+            for i in range(2,num+1,1):
+                if prime[i]:
+                    last = i
+                    length +=1 
+    
+            return  Decimal(str(length)),Decimal(str(last))
+        # return length,last
 
     def _validate_output(self, op: str, *results: Decimal):
         if op in self.scientific_operations:
             if op == "primes":
                 results = results[0]
 
-            converted = tuple((value) for value in results)
+            converted = tuple(int(value) for value in results)
             return converted[0] if len(converted) == 1 else converted
 
         return super()._validate_output(op, *results)
@@ -129,9 +137,9 @@ class Job:
             return self.finished_at - self.started_at
 
 class Utils:
-    def check_digit(self, value: int | Decimal) -> tuple[int, bool]:
+    def check_digit(self, value: int ) -> tuple[int, bool]:
 
-        length = value.adjusted() + 1
+        length = len(value)
         if length > DEFAULT_DIGIT_LIMIT:
            return length , True
         return value
