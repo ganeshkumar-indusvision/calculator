@@ -4,7 +4,7 @@ import logging
 from collections import namedtuple
 from decimal import Decimal, ROUND_FLOOR, InvalidOperation
 from pathlib import Path
-
+import readline
 DATA_FILE = Path("output/calculator_data.json")
 LOG_FILE = Path("logs/calculator.log")
 
@@ -206,7 +206,7 @@ class CalculatorApp:
         # added this becuase once i initalise the CalculatorApp class it fill be initiating calcualtor.
         self.calculator = self._make_calculator()
         self.data_file = DATA_FILE
-        self.history = self._make_history()
+        self.history = History()
         self.memory = None
         self.running = True
 
@@ -244,6 +244,7 @@ class CalculatorApp:
         }
         self._calculator_logger_init()
         self._load_history()
+        
 
     def _display_result(self,op, operands, result):
         self.logger.debug(f"{op} {operands} {result}")
@@ -258,10 +259,6 @@ class CalculatorApp:
     def _make_calculator(self) -> Calculator:
         """Factory for the calculator instance. Override to use a subclass."""
         return Calculator()
-    # I have created new class in scitific because there is modification result
-    def _make_history(self) -> History:
-        """Factory for the history instance. Override to use a subclass."""
-        return History()
 
     def _calculator_logger_init(self) -> None:
         self.logger = logging.getLogger(f"{__name__}.{id(self)}")
@@ -280,7 +277,6 @@ class CalculatorApp:
     def _load_history(self) -> None:
         self.memory = self.history.load(self.data_file, on_warning=self.logger.warning)
         self.logger.info(f"Loaded {len(self.history)} past calculations from {self.data_file}")
-        self.logger.info("Python Calculator — type 'help' for commands")
 
     def _exit(self) -> None:
         """Save state and stop the loop."""
@@ -452,6 +448,7 @@ class CalculatorApp:
 
     def run(self) -> None:
         """Run the interactive input loop."""
+        self.logger.info("Python Calculator — type 'help' for commands")
         try:
             while self.running:
                 try:

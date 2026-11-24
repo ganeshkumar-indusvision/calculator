@@ -77,16 +77,16 @@ class ScientificCalculator(Calculator):
             length = 0
             while (p*p<=num):
                 if prime[p]:
-                
+
                     for i in range(p*p,num+1,p):
                         prime[i]=False
-    
+
                 p+=1
             for i in range(2,num+1,1):
                 if prime[i]:
                     last = i
                     length +=1 
-    
+
             return  Decimal(str(length)),Decimal(str(last))
         # return length,last
 
@@ -284,7 +284,7 @@ class JobManager:
             return job
 
 
-    def load(self) -> None: 
+    def load(self) -> int: 
         """Load jobs from the file and mark unfinished one as interrupted."""
         if not self.jobs_file.exists():
             return
@@ -317,7 +317,8 @@ class JobManager:
                 )
                 self.jobs[job.id] = job
             if self.jobs:                             
-                self._next_id = max(self.jobs.keys()) + 1    
+                self._next_id = max(self.jobs.keys()) + 1  
+            return  self._next_id - 1
 
     def show_jobs(self) -> None:
         """Print all jobs with there state and duration."""
@@ -394,7 +395,6 @@ class TaskRunnerApp(CalculatorApp):
             "workers": self._show_workers,
         })
 
-        self.manager.load()
         self.task_handlers = {
             "submit": self._handle_submit,
             "batch": self._handle_batch,
@@ -403,8 +403,16 @@ class TaskRunnerApp(CalculatorApp):
         
         # self._workers_started = False
         self.manager = JobManager(self.calculator, self.history,self.utils )
+        
         self.workers = [Worker(f"worker-{i}", self.manager) for i in range(1, NUM_WORKERS + 1)]
         self.start_worker()
+        self._load_manager()
+
+    def _load_manager(self) -> None:
+        jobs = self.manager.load()
+        self.logger.info(f"Loaded {jobs} past jobs from {JOBS_FILE}")
+
+
     def start_worker(self) -> None:
         for w in self.workers:
             w.thread.start() 
@@ -446,7 +454,6 @@ class TaskRunnerApp(CalculatorApp):
             handler(args)
 
     def _handle_submit(self, args: tuple) -> None:
-        self._ensure_workers_started() 
         if len(args) < 2:
             self.logger.warning("Usage: submit <operation> <arguments>")
             return
@@ -522,7 +529,6 @@ class TaskRunnerApp(CalculatorApp):
                     queued_ids.append(self.manager.submit(cmd, tuple(nums)))
 
         if queued_ids:
-            self._ensure_workers_started()
             rng = f"{queued_ids[0]}-{queued_ids[-1]}" if len(queued_ids) > 1 else str(queued_ids[0])
             msg = f"Queued {len(queued_ids)} jobs ({rng})."
         else:
