@@ -28,3 +28,8 @@
 2. validated test.
 3. Removed unwanted raise value error.
 
+
+# Clarification
+
+## How to handle stats if we include primes.
+

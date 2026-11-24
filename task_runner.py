@@ -87,7 +87,7 @@ class ScientificCalculator(Calculator):
             if op == "primes":
                 results = results[0]
 
-            converted = tuple(int(value) for value in results)
+            converted = tuple((value) for value in results)
             return converted[0] if len(converted) == 1 else converted
 
         return super()._validate_output(op, *results)
@@ -100,10 +100,10 @@ class ScientificCalculator(Calculator):
 
         super()._validate_number(number,op)
 
-    def check_digit(self, value: int | Decimal) -> tuple[int, bool]:
-        length = value.adjusted() + 1
-        return length, length > DEFAULT_DIGIT_LIMIT
-    
+
+
+
+            
 
 class JobState(Enum):
     QUEUED = "queued"
@@ -128,11 +128,42 @@ class Job:
         if self.started_at is not None and self.finished_at is not None:
             return self.finished_at - self.started_at
 
+class Utils:
+    def check_digit(self, value: int | Decimal) -> tuple[int, bool]:
+
+        length = value.adjusted() + 1
+        if length > DEFAULT_DIGIT_LIMIT:
+           return length , True
+        return value
+
+    def add_digit_words(self, msg):
+        return msg + " in digit" 
+
+    def formate_msg(self,op,result) -> str:
+        msg = ""
+        if op in self.scientific_operations:
+            if op == "primes":
+                value, is_digit = self._check_digit(result[0])
+                msg = f"{value} primes"
+                if is_digit ==True:
+                    msg = self.add_digit_words(msg)
+                value, is_digit = self._check_digit(result[1])
+                msg = msg + f",largest {value}"
+                if is_digit ==True:
+                    msg = self.add_digit_words(msg)
+            else:
+                value, is_digit = self._check_digit(value)
+                msg = f"{value}"
+                if is_digit ==True:
+                    msg = self.add_digit_words(msg)
+            return msg
+        else:
+            return result
 
 class JobManager:
     """Owns jobs, the queue, the lock and saving. Safe to call from any thread."""
 
-    def __init__(self, calculator: ScientificCalculator, history: History, jobs_file: Path= JOBS_FILE) -> None:
+    def __init__(self, calculator: ScientificCalculator, history: History, utils: Utils, jobs_file: Path = JOBS_FILE) -> None:
         self.calculator = calculator
         self.history = history           
         self.jobs: dict[int, Job] = {}
@@ -141,9 +172,9 @@ class JobManager:
         self.stop_event = threading.Event()
         self._next_id: int = 1 
         self.jobs_file = jobs_file
+        self.utils = utils
         self._worker_logger_init()
-        
-    
+
     def _worker_logger_init(self) -> None:
         self.logger = logging.getLogger("runner")
         self.logger.setLevel(logging.DEBUG)
@@ -176,11 +207,14 @@ class JobManager:
                 self.logger.error(f"No Jobs with id {job_id}")
                 raise ValueError(f"No Jobs with id{job_id}")
             return self.jobs[job_id]
-
+    
     def record_calculation(self, op: str, operands: tuple, result: object, data_file: Path | None = None, memory: object = None) -> None:
         # central place for history recording so both main thread and workers use it under the lock
-        with self.lock:
-            self.history.add(Calculation(op, tuple(operands), result))
+        with self.lock:         
+            if op == "primes":
+                value = result[0] 
+            else: value = result
+            self.history.add(Calculation(op, tuple(operands), value))
             if data_file:
                 try:
                     self.history.save(data_file, memory)
@@ -330,15 +364,12 @@ class Worker:
                 self.manager.queue.task_done()
 
 
-
 class TaskRunnerApp(CalculatorApp):
     """The calculator app plus background job commands."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.manager = JobManager(self.calculator, self.history)
-        self.workers = [Worker(f"worker-{i}", self.manager) for i in range(1, NUM_WORKERS + 1)]
-
+        self.utils = Utils()
         self.command_info.update({
             "fact": (1, "Calculate factorial of n", "\nExample: \n> fact 5 \n> 120"),
             "primes": (1, "Count primes <= n and largest prime", "\nExample: \n> primes 10 \n> 4 primes, largest 7"),
@@ -355,40 +386,40 @@ class TaskRunnerApp(CalculatorApp):
             "workers": self._show_workers,
         })
 
-        self.manager.load(self.logger.warning)
+        self.manager.load()
         self.task_handlers = {
             "submit": self._handle_submit,
             "batch": self._handle_batch,
             "result": self._handle_result,
         }
-        self._workers_started = False
+        
+        # self._workers_started = False
+        self.manager = JobManager(self.calculator, self.history,self.utils )
+        self.workers = [Worker(f"worker-{i}", self.manager) for i in range(1, NUM_WORKERS + 1)]
+        self.start_worker()
+    def start_worker(self) -> None:
+        for w in self.workers:
+            w.thread.start() 
 
-    def _ensure_workers_started(self) -> None:
-        if self._workers_started:
-            return
-        [w.thread.start() for w in self.workers]
-        self._workers_started = True
+
     def _make_calculator(self) -> Calculator:
         return ScientificCalculator()
 
-    def format_result(self, result):
-        """Format the result so it look nice in the terminal."""
-        if isinstance(result, (tuple, list)) and result and isinstance(result[0], str):
-            op = result[0]
-            if op in ("fact", "fib"):
-                val, is_digits = result[1]
-                return f"{val} digits" if is_digits else str(val)
-            if op == "primes":
-                (largest, _), (count, _) = result[1], result[2]
-                return f"{count} primes, largest {largest}" if count else "0 primes"
-        return str(result)
 
-    def _display_result(self, result):
-        print(self.format_result(result))
+    def _display_result(self,op, operands, result):
+        msg = self.utils.formate_msg(op,result)
 
-    def _record_result(self, op, operands, result):
-        self.manager.record_calculation(op, operands, result, self.data_file, self.memory)
-    
+        self.logger.debug(f"{op} {operands} {msg}")
+        self.logger.info("%s", msg)
+
+        
+    def _display_result(self, op, operands,  result):
+        self.logger.info("%s", result)
+        self.history.add(Calculation(op, operands, result))
+        try:
+            self.history.save(self.data_file, self.memory)
+        except OSError as e:
+            self.logger.warning(f"Warning: could not save history: {e}")
     def validate_request(self, op: str, *args: object) -> None:
         if op not in self.calculator.operations:
             raise ValueError(f"Unknown operation: {op}")

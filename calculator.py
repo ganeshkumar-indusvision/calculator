@@ -245,7 +245,8 @@ class CalculatorApp:
         self._calculator_logger_init()
         self._load_history()
 
-    def _display_result(self, result):
+    def _display_result(self,op, operands, result):
+        self.logger.debug(f"{op} {operands} {result}")
         self.logger.info("%s", result)
 
     def _record_result(self, op, operands, result):
@@ -254,7 +255,6 @@ class CalculatorApp:
             self.history.save(self.data_file, self.memory)
         except OSError as e:
             self.logger.warning(f"Warning: could not save history: {e}")
-
     def _make_calculator(self) -> Calculator:
         """Factory for the calculator instance. Override to use a subclass."""
         return Calculator()
@@ -265,7 +265,7 @@ class CalculatorApp:
 
     def _calculator_logger_init(self) -> None:
         self.logger = logging.getLogger(f"{__name__}.{id(self)}")
-        self.logger.setLevel(logging.DEBUG)
+        self.logger.setLevel(logging.INFO)
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(logging.Formatter("%(message)s"))
         try:
@@ -447,7 +447,7 @@ class CalculatorApp:
         result = self.calculator.calculate(op, *converted)
 
         # I changed result to differetn fromate for reporting to user so i want to isolate someparts.
-        self._display_result(result)
+        self._display_result(op, converted, result)
         self._record_result(op, converted, result)
 
     def run(self) -> None:
