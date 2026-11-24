@@ -103,7 +103,27 @@ class TestWorker(unittest.TestCase):
             )
             i = i +1
 
+    def test_no_duplicate_job_execution(self):
+        job_ids = [
+            self.manager.submit("add", (i, 1))
+            for i in range(20)
+        ]
 
+        self.start_workers()
+        self.manager.queue.join()
+
+        completed = [
+            job_id for job_id in job_ids
+            if self.manager.get(job_id).state == JobState.DONE
+        ]
+
+        self.assertEqual(len(completed), len(job_ids))
+    def test_worker_shutdown_when_idle(self):
+        self.start_workers()
+        self.stop_workers()
+
+        for worker in self.workers:
+            self.assertFalse(worker.thread.is_alive())
 
     def tearDown(self):
         self.stop_workers()
