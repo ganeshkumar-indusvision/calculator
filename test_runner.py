@@ -83,6 +83,28 @@ class TestWorker(unittest.TestCase):
             )
             i = i +1
 
+    def test_three_workers_process_jobs(self):
+        job_ids = [
+            self.manager.submit("mul", (i, 2))
+            for i in range(1, 11)
+        ]
+
+        self.start_workers()
+        self.manager.queue.join()
+        i = 1
+        for job_id in job_ids:
+            self.assertEqual(
+                self.manager.get(job_id).state,
+                JobState.DONE
+            )
+            self.assertEqual(
+                self.manager.get(job_id).result,
+                (i*2)
+            )
+            i = i +1
+
+
+
     def tearDown(self):
         self.stop_workers()
         self.temp_dir.cleanup()
