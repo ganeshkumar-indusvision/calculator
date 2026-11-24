@@ -125,6 +125,25 @@ class TestWorker(unittest.TestCase):
         for worker in self.workers:
             self.assertFalse(worker.thread.is_alive())
 
+    def test_worker_shutdown_after_job(self):
+        job_id = self.manager.submit("add", (5, 5))
+        self.start_workers()
+
+        self.manager.queue.join()
+        self.stop_workers()
+
+        self.assertEqual(
+            self.manager.get(job_id).state,
+            JobState.DONE
+        )
+
+    def test_shutdown_with_empty_queue(self):
+        self.start_workers()
+        self.stop_workers()
+
+        self.assertTrue(
+            all(not worker.thread.is_alive() for worker in self.workers)
+        )
     def tearDown(self):
         self.stop_workers()
         self.temp_dir.cleanup()

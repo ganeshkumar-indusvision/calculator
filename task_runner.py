@@ -13,7 +13,7 @@ from calculator import Calculation, Calculator, CalculatorApp, History
 
 JOBS_FILE = Path("output/jobs.json")
 NUM_WORKERS = 3
-WORKER_LOG = Path("output/runner.log")
+WORKER_LOG = Path("logs/runner.log")
 DEFAULT_DIGIT_LIMIT= 50
 
 class ScientificCalculator(Calculator):
@@ -157,7 +157,6 @@ class JobManager:
             ))
             self.logger.addHandler(file_handler)
 
-    # Added test 
     def submit(self, command: str, operands: tuple) -> int:
         """Add a job in the queue and return it's id."""
         # Here, lock needed because there is Read and write operation
@@ -170,30 +169,24 @@ class JobManager:
             self.save()
             self.logger.info(f"Job-{job_id} Queued ({command} {operands})")
             return job_id 
-    # added test
+
     def get(self, job_id: int) -> Job: 
         with self.lock:
             if job_id not in self.jobs:
                 self.logger.error(f"No Jobs with id {job_id}")
                 raise ValueError(f"No Jobs with id{job_id}")
             return self.jobs[job_id]
-    # Need to add test
+
     def record_calculation(self, op: str, operands: tuple, result: object, data_file: Path | None = None, memory: object = None) -> None:
         # central place for history recording so both main thread and workers use it under the lock
         with self.lock:
-            val = result
-            if isinstance(val, (tuple, list)) and val and isinstance(val[0], str):
-                if val[0] == "primes":
-                    val = val[2][0]
-                elif val[0] in ("fact", "fib"):
-                    val = val[1][0]
-            self.history.add(Calculation(op, tuple(operands), val))
+            self.history.add(Calculation(op, tuple(operands), result))
             if data_file:
                 try:
                     self.history.save(data_file, memory)
                 except OSError as e:
                     self.logger.warning(f"Could not save history: {e}")
-    # Added test
+
     def finish(self, job_id: int, result: object) -> None:
         with self.lock:
             if job_id not in self.jobs:
@@ -205,7 +198,7 @@ class JobManager:
             job.state = JobState.DONE
             self.save()
             self.logger.info(f"Job {job_id} Finished ({job.command} {job.operands} = {result})")
-    # Added test
+
     def fail(self, job_id: int, error: str) -> None: 
         with self.lock:
             if job_id not in self.jobs:
@@ -216,7 +209,7 @@ class JobManager:
             job.state = JobState.FAILED
             self.save()
             self.logger.error(f"Job {job_id} Failed ({job.command} {job.operands} Error = {error})")
-    # not added test
+
     def save(self) -> None: 
         # Currenty this i feel need iteration we can improve this problem.
         data = {str(job_id):{
@@ -236,7 +229,7 @@ class JobManager:
             json.dump(data,f,indent=2)
         os.replace(temp_file,self.jobs_file)
 
-    # not added
+
     def mark_running(self, job_id: int) -> Job | None:
         with self.lock:
             if job_id not in self.jobs:
@@ -248,7 +241,7 @@ class JobManager:
             self.logger.info(f"Job {job_id} Running ({job.command} {job.operands})")
             return job
 
-    # not added
+
     def load(self) -> None: 
         """Load jobs from the file and mark unfinished one as interrupted."""
         if not self.jobs_file.exists():
@@ -283,7 +276,7 @@ class JobManager:
                 self.jobs[job.id] = job
             if self.jobs:                             
                 self._next_id = max(self.jobs.keys()) + 1    
-    # not added
+
     def show_jobs(self) -> None:
         """Print all jobs with there state and duration."""
         with self.lock:
