@@ -198,7 +198,6 @@ class JobManager:
         self.jobs_file = jobs_file
         self.utils = utils
         self._worker_logger_init()
-
     def _worker_logger_init(self) -> None:
         self.logger = logging.getLogger("runner")
         self.logger.setLevel(logging.DEBUG)
@@ -211,19 +210,31 @@ class JobManager:
                 datefmt="%Y-%m-%d %H:%M:%S",
             ))
             self.logger.addHandler(file_handler)
+    def batch_submit(self, jobs: list[tuple[str, tuple]]) -> list[int]:
+        """Add multiple jobs to the queue and save once."""
+        if not jobs:
+            return []
+        with self.lock:
+            job_ids = [self._enqueue(command, operands).id for command, operands in jobs]
+            self.save()
+            return job_ids
+
 
     def submit(self, command: str, operands: tuple) -> int:
         """Add a job in the queue and return it's id."""
         # Here, lock needed because there is Read and write operation
         with self.lock:
-            job_id = self._next_id
-            self._next_id +=1
-            job = Job(id=job_id,command=command,operands=tuple(operands))
-            self.jobs[job_id]= job
-            self.queue.put(job_id)# Queue adding (publisher point)
+            job = self._enqueue(command, operands)
             self.save()
-            self.logger.info(f"Job-{job_id} Queued ({command} {operands})")
-            return job_id 
+            return job.id
+    def _enqueue(self, command: str, operands: tuple) -> Job:
+        job_id = self._next_id
+        self._next_id += 1
+        job = Job(id=job_id, command=command, operands=tuple(operands))
+        self.jobs[job_id] = job
+        self.queue.put(job_id)
+        self.logger.info(f"Job-{job_id} Queued ({command} {operands})")
+        return job
 
     def get(self, job_id: int) -> Job: 
         with self.lock:
@@ -369,10 +380,15 @@ class Worker:
             try:
                 # 0.5s timeout lets thread regularly check stop_event so quit doesn't block forever
                 job_id = self.manager.queue.get(timeout=0.5)
+                if self.manager.stop_event.is_set():
+                    self.manager.queue.task_done()
+                    break
             except queue.Empty:
                 continue
+            self.current_job = job_id
             job = self.manager.mark_running(job_id)
             if job is None:
+                self.current_job = None
                 self.manager.queue.task_done()
                 continue
             self.current_job = job_id
@@ -462,80 +478,76 @@ class TaskRunnerApp(CalculatorApp):
         if handler:
             handler(args)
 
-    def _handle_submit(self, args: tuple) -> None:
-        if len(args) < 2:
-            self.logger.warning("Usage: submit <operation> <arguments>")
-            return
 
-        op = args[0].lower()
-        operands = args[1:]
+    def _validate_submit(self, args: tuple) -> tuple[str, tuple]:
+        if not args:
+            raise ValueError("Usage: submit <operation> <arguments>")
 
-        if op in ("ms", "mr", "mc"):
-            self.logger.warning(f"{op} can't be run as a job")
-            return
+        op, operands = args[0].lower(), args[1:]
 
-        if op not in self.calculator.operations:
-            self.logger.warning(f"{op} is not a valid calculator operation")
-            return
+        if op not in self.command_info:
+            raise ValueError(f"Unknown command '{op}'")
+
+        job_commands = self.command_info.keys() - self.app_handlers.keys() - self.task_handlers.keys()
+        if op not in job_commands:
+            raise ValueError(f"{op} can't be run as a job")
 
         expected = self.command_info[op][0]
         if len(operands) != expected:
-            self.logger.warning(f"{op} requires {expected} argument(s)")
-            return
+            raise ValueError(f"{op} requires {expected} argument(s)")
 
+        if any(s.lower() == "last" for s in operands):
+            raise ValueError("'last' is not allowed in jobs")
+
+        converted = tuple(self._detect_numeric_type(s) for s in operands)
+        if None in converted:
+            bad = operands[converted.index(None)]
+            raise ValueError(f"'{bad}' is not a valid number")
+
+        self.validate_request(op, *converted)
+        return op, converted
+
+    def _handle_submit(self, args: tuple) -> int | None:
         try:
-            converted = self._convert_args(operands)
-            if converted is None:
-                return
+            op, converted = self._validate_submit(args)
+        except ValueError as e:
+            if str(e):
+                self.logger.warning(str(e))
+            return None
 
-            self.validate_request(op, *converted)
+        job_id = self.manager.submit(op, converted)
+        print(f"Job {job_id} queued")
+        return job_id
 
-            job_id = self.manager.submit(op, converted)
-            print(f"Job {job_id} queued")
-
-        except (ValueError, TypeError) as e:
-            self.logger.warning(str(e))
+    def _read_batch_file(self, path: Path) -> list[str] | None:
+        try:
+            return path.read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError:
+            print(f"File not found: {path.name}")
+        except OSError as e:
+            print(f"Could not read {path.name}: {e}")
+        return None
 
     def _handle_batch(self, args: tuple) -> None:
         if len(args) != 1:
             self.logger.warning("Usage: batch <filename>")
             return
 
-        path = Path(args[0])
-        if not path.exists():
-            print(f"File not found: {path.name}")
+        lines = self._read_batch_file(Path(args[0]))
+        if lines is None:
             return
 
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError as e:
-            print(f"Could not read {path.name}: {e}")
-            return
-
-        queued_ids = []
-        invalid = []
-
+        valid_jobs, invalid = [], []
         for line_no, line in enumerate(lines, start=1):
-            parts = line.split()
+            parts = tuple(line.split())
             if not parts or parts[0].startswith("#"):
                 continue
-            cmd, raw = parts[0].lower(), parts[1:]
+            try:
+                valid_jobs.append(self._validate_submit(parts))
+            except (ValueError, TypeError) as e:
+                invalid.append((line_no, str(e)))
 
-            if cmd in ("ms", "mr", "mc"):
-                invalid.append((line_no, f"{cmd} can't be run as a job"))
-            elif cmd not in self.calculator.operations:
-                invalid.append((line_no, f"Unknown command '{cmd}'"))
-            elif len(raw) != self.calculator.operations[cmd][0]:
-                exp = self.calculator.operations[cmd][0]
-                invalid.append((line_no, f"{cmd} needs {exp} {'number' if exp == 1 else 'numbers'}"))
-            elif any(s.lower() == "last" for s in raw):
-                invalid.append((line_no, "'last' is not allowed in batch files"))
-            else:
-                nums = [self._detect_numeric_type(s) for s in raw]
-                if None in nums:
-                    invalid.append((line_no, f"'{raw[nums.index(None)]}' is not a valid number"))
-                else:
-                    queued_ids.append(self.manager.submit(cmd, tuple(nums)))
+        queued_ids = self.manager.batch_submit(valid_jobs)
 
         if queued_ids:
             rng = f"{queued_ids[0]}-{queued_ids[-1]}" if len(queued_ids) > 1 else str(queued_ids[0])
@@ -550,7 +562,6 @@ class TaskRunnerApp(CalculatorApp):
                 print(f"  line {lno}: {err}")
         else:
             print(msg)
-
     def _handle_result(self, args: tuple) -> None:
         if len(args) != 1:
             self.logger.warning("Usage: result <job_id>")
@@ -595,11 +606,22 @@ class TaskRunnerApp(CalculatorApp):
                 print(f"{worker.thread.name}: running job {worker.current_job}")
 
     def _exit(self) -> None:
-        self.manager.queue.join()
         self.manager.stop_event.set()
         if self._workers_started:
-            [worker.thread.join() for worker in self.workers]
-        super()._exit()
+            running = sum(1 for w in self.workers if w.current_job is not None)
+            if running:
+                word = "job" if running == 1 else "jobs"
+                print(f"\nWaiting for {running} {word} to finish...", flush=True)
+            for worker in self.workers:
+                worker.thread.join()
+
+        with self.manager.lock:
+            total = len(self.manager.jobs)
+            print("\nSaving jobs, please wait...", flush=True)
+            self.manager.save()
+
+        word = "job" if total == 1 else "jobs"
+        print(f"Saved {total} {word} to {self.manager.jobs_file.name}. Goodbye!")
 
     def handle_command(self, command: str) -> None:
         tokens = tuple(command.split())
