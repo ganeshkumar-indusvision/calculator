@@ -152,7 +152,7 @@ class Utils:
 
     def __init__(self,calculator: ScientificCalculator):
         self.calculator = calculator
-    def _check_digit(self, value: int ) -> tuple[int, bool]:
+    def check_digit(self, value: int ) -> tuple[int, bool]:
         if isinstance(value, int) and not isinstance(value, bool):
             length = len(str(value))
             if length > DEFAULT_DIGIT_LIMIT:
@@ -168,17 +168,17 @@ class Utils:
 
         if op == "primes":
             count, largest = result
-            value, is_digit = self._check_digit(count)
+            value, is_digit = self.check_digit(count)
             msg = f"{value} primes"
             if is_digit:
                 msg = self.add_digit_words(msg)
-            value, is_digit = self._check_digit(largest)
+            value, is_digit = self.check_digit(largest)
             msg = msg + f", largest {value}"
             if is_digit:
                 msg = self.add_digit_words(msg)
             return msg
 
-        value, is_digit = self._check_digit(result)
+        value, is_digit = self.check_digit(result)
         msg = f"{value}"
         if is_digit:
             msg = self.add_digit_words(msg)
@@ -187,7 +187,7 @@ class Utils:
 class JobManager:
     """Owns jobs, the queue, the lock and saving. Safe to call from any thread."""
 
-    def __init__(self, calculator: ScientificCalculator, history: History, utils: Utils, jobs_file: Path = JOBS_FILE) -> None:
+    def __init__(self, calculator: ScientificCalculator, history: History, utils: Utils, jobs_file: Path = JOBS_FILE,data_file: Path | None = None,get_memory=None) -> None:
         self.calculator = calculator
         self.history = history           
         self.jobs: dict[int, Job] = {}
@@ -198,6 +198,8 @@ class JobManager:
         self.jobs_file = jobs_file
         self.utils = utils
         self._worker_logger_init()
+        self.data_file = data_file
+        self.get_memory = get_memory
     def _worker_logger_init(self) -> None:
         self.logger = logging.getLogger("runner")
         self.logger.setLevel(logging.DEBUG)
@@ -237,25 +239,24 @@ class JobManager:
         return job
 
     def get(self, job_id: int) -> Job: 
-        with self.lock:
-            if job_id not in self.jobs:
-                self.logger.error(f"No Jobs with id {job_id}")
-                raise JobNotFoundError(f"No Jobs with id{job_id}")
-            return self.jobs[job_id]
+        # with self.lock:
+        if job_id not in self.jobs:
+            self.logger.error(f"No Jobs with id {job_id}")
+            raise JobNotFoundError(f"No Jobs with id{job_id}")
+        return self.jobs[job_id]
     
-    def record_calculation(self, op: str, operands: tuple, result: object, data_file: Path | None = None, memory: object = None) -> None:
-        # central place for history recording so both main thread and workers use it under the lock
-        with self.lock:         
-            if op == "primes":
-                value = result[0] 
-            else: value = result
+    def record_calculation(self,op: str,operands: tuple,result: object,data_file: Path | None = None,memory: object = None) -> None:
+        with self.lock:
+            value = result[0] if op == "primes" else result
+            value, _ = self.utils.check_digit(value)
             self.history.add(Calculation(op, tuple(operands), value))
-            if data_file:
+            target_file = data_file or self.data_file
+            if target_file:
+                mem = self.get_memory() if (memory is None and self.get_memory) else memory
                 try:
-                    self.history.save(data_file, memory)
+                    self.history.save(target_file, mem)
                 except OSError as e:
                     self.logger.warning(f"Could not save history: {e}")
-
     def finish(self, job_id: int, result: object) -> None:
         with self.lock:
             if job_id not in self.jobs:
@@ -311,21 +312,17 @@ class JobManager:
             return job
 
 
-    def load(self) -> int: 
-        """Load jobs from the file and mark unfinished one as interrupted."""
+    def load(self) -> int:
+        """Load jobs from the file and mark unfinished ones as interrupted."""
         if not self.jobs_file.exists():
-            return
+            return 0
         try:
-            with open(self.jobs_file,"r",encoding="utf-8") as f:
+            with open(self.jobs_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            back_file = self.jobs_file.with_name(self.jobs_file.name + ".bak")
-            try:
-                os.replace(self.jobs_file, back_file)
-            except OSError:
-                raise OSError(f"Warning: could not read {self.jobs_file}. Starting empty.")
-                data = {} # Need to make sure empty data is created.
-        with self.lock:
+            if not isinstance(data, dict):
+                raise TypeError("Top-level JSON must be an object")
+
+            loaded: dict[int, Job] = {}
             for item in data.values():
                 state = JobState(item["state"])
                 error = item.get("error")
@@ -333,24 +330,35 @@ class JobManager:
                     state = JobState.FAILED
                     error = "interrupted"
                 job = Job(
-                    id = item["id"],
-                    command= item["command"],
-                    operands= tuple(item["operands"]),
-                    state= state,
-                    result= item["result"],
-                    error = error,
+                    id=item["id"],
+                    command=item["command"],
+                    operands=tuple(item["operands"]),
+                    state=state,
+                    result=item["result"],
+                    error=error,
                     started_at=item["started_at"],
                     finished_at=item["finished_at"],
                 )
-                self.jobs[job.id] = job
-            if self.jobs:                             
-                self._next_id = max(self.jobs.keys()) + 1  
-            return  self._next_id - 1
+                loaded[job.id] = job
+        except (json.JSONDecodeError, OSError, KeyError, TypeError, ValueError, AttributeError):
+            back_file = self.jobs_file.with_name(self.jobs_file.name + ".bak")
+            try:
+                os.replace(self.jobs_file, back_file)
+                self.logger.warning(f"Warning: {self.jobs_file} was invalid. Renamed to {back_file.name}.")
+            except OSError:
+                self.logger.warning(f"Warning: could not read {self.jobs_file}. Starting empty.")
+            return 0
+
+        with self.lock:
+            self.jobs.update(loaded)
+            if self.jobs:
+                self._next_id = max(self.jobs.keys()) + 1
+            return len(loaded)
 
     def show_jobs(self) -> None:
         """Print all jobs with there state and duration."""
-        with self.lock:
-            jobs = sorted(self.jobs.values(), key=lambda j: j.id)
+        # with self.lock:
+        jobs = sorted(self.jobs.values(), key=lambda j: j.id)
         if not jobs:
             print("No jobs yet")
             return
@@ -622,6 +630,7 @@ class TaskRunnerApp(CalculatorApp):
 
         word = "job" if total == 1 else "jobs"
         print(f"Saved {total} {word} to {self.manager.jobs_file.name}. Goodbye!")
+        super()._exit()
 
     def handle_command(self, command: str) -> None:
         tokens = tuple(command.split())

@@ -162,11 +162,18 @@ class History:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, OSError):
+            if not isinstance(data, dict):
+                raise TypeError("Top-level JSON must be an object")
+            entries = [
+                Calculation(item["op"], tuple(item["operands"]), item["result"])
+                for item in data.get("history", [])
+            ]
+            memory = data.get("memory")
+        except (json.JSONDecodeError, OSError, KeyError, TypeError, AttributeError, ValueError):
             backup = path.with_name(path.name + ".bak")
             try:
                 path.rename(backup)
-                msg = f"Warning: {path} was not valid JSON. Renamed to {backup.name}."
+                msg = f"Warning: {path} was invalid. Renamed to {backup.name}."
             except OSError:
                 msg = f"Warning: could not read {path}. Starting empty."
             if callable(on_warning):
@@ -174,13 +181,8 @@ class History:
             self._entries = []
             return None
 
-        # Convert operand lists back to tuples for immutability and memory consistency.
-        self._entries = [
-            Calculation(item["op"], tuple(item["operands"]), item["result"])
-            for item in data.get("history", [])
-        ]
-        return data.get("memory")
-
+        self._entries = entries
+        return memory
     def clear(self) -> None:
         """Remove all entries from history."""
         self._entries = []

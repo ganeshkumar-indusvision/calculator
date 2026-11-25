@@ -79,6 +79,51 @@ class TestWorker(unittest.TestCase):
             Worker(f"Worker-{i}", self.manager)
             for i in range(1, 4)
         ]
+
+
+    def test_100_concurrent_jobs_and_history(self):
+        initial_history = len(self.history)
+        job_ids = []
+        id_lock = threading.Lock()
+
+        def submit_many():
+            for i in range(20):
+                jid = self.manager.submit("add", (i, 1))
+                with id_lock:
+                    job_ids.append(jid)
+
+        self.start_workers()
+        producers = [threading.Thread(target=submit_many) for _ in range(5)]
+        for t in producers:
+            t.start()
+        for t in producers:
+            t.join()
+
+        self.manager.queue.join()
+        self.stop_workers()
+
+        self.assertEqual(len(job_ids), 100)
+        self.assertEqual(len(set(job_ids)), 100)
+        self.assertTrue(
+            all(self.manager.get(jid).state == JobState.DONE for jid in job_ids)
+        )
+        self.assertEqual(len(self.history), initial_history + 100)
+
+    def test_worker_survives_failed_job(self):
+        single_worker = Worker("worker-1", self.manager)
+        fail_id = self.manager.submit("div", (10, 0))
+        ok_id = self.manager.submit("add", (2, 3))
+
+        single_worker.thread.start()
+        try:
+            self.manager.queue.join()
+        finally:
+            self.manager.stop_event.set()
+            single_worker.thread.join(timeout=2)
+
+        self.assertEqual(self.manager.get(fail_id).state, JobState.FAILED)
+        self.assertEqual(self.manager.get(ok_id).state, JobState.DONE)
+        self.assertEqual(self.manager.get(ok_id).result, 5)
     def start_workers(self):
         for worker in self.workers:
             worker.thread.start()
