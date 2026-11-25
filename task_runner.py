@@ -15,7 +15,22 @@ JOBS_FILE = Path("output/jobs.json")
 NUM_WORKERS = 3
 WORKER_LOG = Path("logs/runner.log")
 DEFAULT_DIGIT_LIMIT= 50
+import sys
 
+if hasattr(sys, "set_int_max_str_digits"):
+    sys.set_int_max_str_digits(0)
+class JobNotFoundError(LookupError):
+    def __init__(self, job_id: int) -> None:
+        self.job_id = job_id
+        super().__init__(f"No job with id {job_id}")
+
+class InvalidJobError(ValueError):
+    def __init__(self, op: str, reason: str) -> None:
+        self.op = op
+        self.reason = reason
+        super().__init__(reason)
+
+            
 class ScientificCalculator(Calculator):
     """Calculator with slow operations that suit background jobs."""
 
@@ -110,9 +125,6 @@ class ScientificCalculator(Calculator):
 
 
 
-
-            
-
 class JobState(Enum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -137,36 +149,40 @@ class Job:
             return self.finished_at - self.started_at
 
 class Utils:
-    def check_digit(self, value: int ) -> tuple[int, bool]:
 
-        length = len(value)
-        if length > DEFAULT_DIGIT_LIMIT:
-           return length , True
-        return value
+    def __init__(self,calculator: ScientificCalculator):
+        self.calculator = calculator
+    def _check_digit(self, value: int ) -> tuple[int, bool]:
+        if isinstance(value, int) and not isinstance(value, bool):
+            length = len(str(value))
+            if length > DEFAULT_DIGIT_LIMIT:
+               return length , True
+            return value, False
 
     def add_digit_words(self, msg):
-        return msg + " in digit" 
+        return msg + " digits" 
 
-    def formate_msg(self,op,result) -> str:
-        msg = ""
-        if op in self.scientific_operations:
-            if op == "primes":
-                value, is_digit = self._check_digit(result[0])
-                msg = f"{value} primes"
-                if is_digit ==True:
-                    msg = self.add_digit_words(msg)
-                value, is_digit = self._check_digit(result[1])
-                msg = msg + f",largest {value}"
-                if is_digit ==True:
-                    msg = self.add_digit_words(msg)
-            else:
-                value, is_digit = self._check_digit(value)
-                msg = f"{value}"
-                if is_digit ==True:
-                    msg = self.add_digit_words(msg)
+    def formate_msg(self, op: str, result) -> str:
+        if op not in self.calculator.scientific_operations:
+            return str(result)
+
+        if op == "primes":
+            count, largest = result
+            value, is_digit = self._check_digit(count)
+            msg = f"{value} primes"
+            if is_digit:
+                msg = self.add_digit_words(msg)
+            value, is_digit = self._check_digit(largest)
+            msg = msg + f", largest {value}"
+            if is_digit:
+                msg = self.add_digit_words(msg)
             return msg
-        else:
-            return result
+
+        value, is_digit = self._check_digit(result)
+        msg = f"{value}"
+        if is_digit:
+            msg = self.add_digit_words(msg)
+        return msg
 
 class JobManager:
     """Owns jobs, the queue, the lock and saving. Safe to call from any thread."""
@@ -213,7 +229,7 @@ class JobManager:
         with self.lock:
             if job_id not in self.jobs:
                 self.logger.error(f"No Jobs with id {job_id}")
-                raise ValueError(f"No Jobs with id{job_id}")
+                raise JobNotFoundError(f"No Jobs with id{job_id}")
             return self.jobs[job_id]
     
     def record_calculation(self, op: str, operands: tuple, result: object, data_file: Path | None = None, memory: object = None) -> None:
@@ -378,7 +394,7 @@ class TaskRunnerApp(CalculatorApp):
 
     def __init__(self) -> None:
         super().__init__()
-        self.utils = Utils()
+        self.utils = Utils(self.calculator)
         self.command_info.update({
             "fact": (1, "Calculate factorial of n", "\nExample: \n> fact 5 \n> 120"),
             "primes": (1, "Count primes <= n and largest prime", "\nExample: \n> primes 10 \n> 4 primes, largest 7"),
@@ -401,7 +417,7 @@ class TaskRunnerApp(CalculatorApp):
             "result": self._handle_result,
         }
         
-        # self._workers_started = False
+        self._workers_started = False
         self.manager = JobManager(self.calculator, self.history,self.utils )
         
         self.workers = [Worker(f"worker-{i}", self.manager) for i in range(1, NUM_WORKERS + 1)]
@@ -415,7 +431,8 @@ class TaskRunnerApp(CalculatorApp):
 
     def start_worker(self) -> None:
         for w in self.workers:
-            w.thread.start() 
+            w.thread.start()
+        self._workers_started = True     
 
 
     def _make_calculator(self) -> Calculator:
@@ -424,18 +441,10 @@ class TaskRunnerApp(CalculatorApp):
 
     def _display_result(self,op, operands, result):
         msg = self.utils.formate_msg(op,result)
-
         self.logger.debug(f"{op} {operands} {msg}")
         self.logger.info("%s", msg)
 
         
-    def _display_result(self, op, operands,  result):
-        self.logger.info("%s", result)
-        self.history.add(Calculation(op, operands, result))
-        try:
-            self.history.save(self.data_file, self.memory)
-        except OSError as e:
-            self.logger.warning(f"Warning: could not save history: {e}")
     def validate_request(self, op: str, *args: object) -> None:
         if op not in self.calculator.operations:
             raise ValueError(f"Unknown operation: {op}")
@@ -549,13 +558,18 @@ class TaskRunnerApp(CalculatorApp):
 
         try:
             job_id = int(args[0])
+
+        except ValueError:
+            self.logger.warning(f"'{args[0]}' is not a valid job id")
+            return
+        try:
             job = self.manager.get(job_id)
-        except (ValueError) as e:
+        except JobNotFoundError as e:
             self.logger.warning(str(e))
             return
 
         if job.state == JobState.DONE:
-            print(self.format_result(job.result))
+            print(self.utils.formate_msg(job.command,job.result))
         elif job.state == JobState.FAILED:
             print(f"FAILED: {job.error}")
         else:
