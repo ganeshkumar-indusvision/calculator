@@ -13,7 +13,6 @@ from calculator import Calculation, Calculator, CalculatorApp, History
 
 JOBS_FILE = Path("output/jobs.json")
 NUM_WORKERS = 3
-WORKER_LOG = Path("logs/runner.log")
 DEFAULT_DIGIT_LIMIT= 50
 import sys
 
@@ -188,7 +187,7 @@ class Utils:
 class JobManager:
     """Owns jobs, the queue, the lock and saving. Safe to call from any thread."""
 
-    def __init__(self, calculator: ScientificCalculator, history: History, utils: Utils, jobs_file: Path = JOBS_FILE,data_file: Path | None = None,get_memory=None) -> None:
+    def __init__(self, calculator: ScientificCalculator, history: History, utils: Utils,logger: logging.Logger, jobs_file: Path = JOBS_FILE,data_file: Path | None = None,get_memory=None) -> None:
         self.calculator = calculator
         self.history = history           
         self.jobs: dict[int, Job] = {}
@@ -198,21 +197,9 @@ class JobManager:
         self._next_id: int = 1 
         self.jobs_file = jobs_file
         self.utils = utils
-        self._worker_logger_init()
+        self.logger = logger
         self.data_file = data_file
         self.get_memory = get_memory
-    def _worker_logger_init(self) -> None:
-        self.logger = logging.getLogger("runner")
-        self.logger.setLevel(logging.DEBUG)
-        self.logger.propagate = False
-        if not self.logger.handlers:
-            WORKER_LOG.parent.mkdir(parents= True, exist_ok=True)
-            file_handler = logging.FileHandler(WORKER_LOG,mode="a",encoding="utf-8")
-            file_handler.setFormatter(logging.Formatter(
-                fmt="%(asctime)s [%(threadName)s] %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            ))
-            self.logger.addHandler(file_handler)
     def batch_submit(self, jobs: list[tuple[str, tuple]]) -> list[int]:
         """Add multiple jobs to the queue and save once."""
         if not jobs:
@@ -406,7 +393,7 @@ class Worker:
                 # calc has no shared state so no lock needed here
                 result = self.manager.calculator.calculate(job.command, *job.operands)
                 self.manager.finish(job_id, result)
-            except Exception as e:
+            except (ArithmeticError, LookupError, TypeError, ValueError) as e:
                 self.manager.fail(job_id, str(e))
             finally:
                 with self.manager.lock:
@@ -447,6 +434,7 @@ class TaskRunnerApp(CalculatorApp):
                         self.calculator,
                         self.history,
                         self.utils,
+                        logger=self.logger,
                         data_file=self.data_file,
                     )
         

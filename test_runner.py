@@ -16,6 +16,7 @@ from task_runner import (
     DEFAULT_DIGIT_LIMIT,
     TaskRunnerApp,
 )
+import logging
 import threading
 from test_data import ScientificCalculatorData, JobManagerData,UtilsData
 from unittest.mock import patch
@@ -26,6 +27,7 @@ class TestUtils(unittest.TestCase):
         self.calculator = ScientificCalculator()
         self.utils = Utils(self.calculator)
         self.utils_data = UtilsData(DEFAULT_DIGIT_LIMIT)
+        self.logger = logging.getLogger("test")
         self.check_digit_cases = self.utils_data.check_digit_cases
         self.check_digit_passthrough_cases = self.utils_data.check_digit_passthrough_cases
         self.add_digit_words_cases = self.utils_data.add_digit_words_cases
@@ -66,7 +68,7 @@ class TestWorker(unittest.TestCase):
         self.jobs_file, self.history_file = (
             self.data.create_initial_files(self.test_dir)
         )
-
+        self.logger = logging.getLogger("test")
         self.calc = ScientificCalculator()
         self.utils = Utils(self.calc)
         self.history = History()
@@ -76,6 +78,7 @@ class TestWorker(unittest.TestCase):
             self.calc,
             self.history,
             self.utils,
+             self.logger,
             self.jobs_file
         )
         self.manager.load()
@@ -268,11 +271,12 @@ class TestJobManager(unittest.TestCase):
         self.history = History()
         self.utils = Utils(self.calc)
         self.memory = self.history.load(self.history_file)
-
+        self.logger = logging.getLogger("test")
         self.manager = JobManager(
             self.calc,
             self.history,
             self.utils,
+             self.logger,
             self.jobs_file
         )
 
@@ -287,7 +291,7 @@ class TestJobManager(unittest.TestCase):
 
     def test_load_missing_file(self):
         manager = JobManager(
-            self.calc, History(), self.utils, self.test_dir / "missing.json"
+            self.calc, History(), self.utils, self.logger, self.test_dir / "missing.json"
         )
         manager.load()
         self.assertEqual(manager.jobs, {})
@@ -296,7 +300,7 @@ class TestJobManager(unittest.TestCase):
         bad_file = self.test_dir / "corrupt.json"
         bad_file.write_text("{not valid json", encoding="utf-8")
 
-        manager = JobManager(self.calc, History(), self.utils, bad_file)
+        manager = JobManager(self.calc, History(), self.utils,self.logger, bad_file)
         manager.load()
 
         self.assertEqual(manager.jobs, {})
@@ -339,7 +343,7 @@ class TestJobManager(unittest.TestCase):
         new_manager = JobManager(
             self.calc,
             self.history,
-            self.utils,
+            self.utils,self.logger,
             self.jobs_file
         )
         new_manager.load()
@@ -470,6 +474,7 @@ class TestCalculator(unittest.TestCase):
     def setUp(self):
         self.calc = ScientificCalculator()
         self.data = ScientificCalculatorData()
+        self.logger = logging.getLogger("test")
         self.input_output = self.data.input_output
         self.value_error_cases = self.data.value_error_cases
         self.single_input_error_cases= self.data.single_input_error_cases
@@ -514,13 +519,16 @@ class TestTaskRunnerApp(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.test_dir = Path(self.temp_dir.name)
+        self.logger = logging.getLogger("test")
         with patch.object(History, "load", return_value=None), patch("logging.Logger.info"):
             self.app = _IsolatedTaskRunnerApp()
         self.app.history = History()
         self.app.manager = JobManager(
             self.app.calculator,
             self.app.history,
+           
             self.app.utils,
+             self.logger,
             self.test_dir / "jobs.json",
         )
 
