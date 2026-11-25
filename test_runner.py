@@ -9,24 +9,61 @@ from task_runner import (
     ScientificCalculator,
     JobManager,
     Worker,
-    JobState,Job,Utils
+    JobState,Job,Utils,JobNotFoundError,DEFAULT_DIGIT_LIMIT
 )
 import threading
-from test_data import ScientificCalculatorData, JobManagerData
+from test_data import ScientificCalculatorData, JobManagerData,UtilsData
 
 
+
+class TestUtils(unittest.TestCase):
+    def setUp(self) -> None:
+        self.calculator = ScientificCalculator()
+        self.utils = Utils(self.calculator)
+        self.utils_data = UtilsData(DEFAULT_DIGIT_LIMIT)
+        self.check_digit_cases = self.utils_data.check_digit_cases
+        self.check_digit_passthrough_cases = self.utils_data.check_digit_passthrough_cases
+        self.add_digit_words_cases = self.utils_data.add_digit_words_cases
+        self.formate_msg_cases = self.utils_data.formate_msg_cases
+
+    def test_check_digit(self) -> None:
+        for value, expected_val, expected_flag in self.check_digit_cases:
+            with self.subTest(expected=(expected_val, expected_flag)):
+                self.assertEqual(
+                    self.utils._check_digit(value),
+                    (expected_val, expected_flag),
+                )
+
+    def test_check_digit_passthrough(self) -> None:
+        for value, expected_val, expected_flag in self.check_digit_passthrough_cases:
+            with self.subTest(value=value):
+                self.assertEqual(
+                    self.utils._check_digit(value),
+                    (expected_val, expected_flag),
+                )
+
+    def test_add_digit_words(self) -> None:
+        for msg, expected in self.add_digit_words_cases:
+            with self.subTest(msg=msg):
+                self.assertEqual(self.utils.add_digit_words(msg), expected)
+
+    def test_formate_msg(self) -> None:
+        for op, result, expected in self.formate_msg_cases:
+            with self.subTest(op=op, expected=expected):
+                self.assertEqual(self.utils.formate_msg(op, result), expected)
 
 class TestWorker(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.data = JobManagerData()
         self.test_dir = Path(self.temp_dir.name)
-        self.utils = Utils()
+        
         self.jobs_file, self.history_file = (
             self.data.create_initial_files(self.test_dir)
         )
 
         self.calc = ScientificCalculator()
+        self.utils = Utils(self.calc)
         self.history = History()
         self.memory = self.history.load(self.history_file)
 
@@ -179,7 +216,7 @@ class TestJobManager(unittest.TestCase):
 
         self.calc = ScientificCalculator()
         self.history = History()
-        self.utils = Utils()
+        self.utils = Utils(self.calc)
         self.memory = self.history.load(self.history_file)
 
         self.manager = JobManager(
@@ -199,7 +236,7 @@ class TestJobManager(unittest.TestCase):
         self.assertEqual(queued_id, job_id)
         
     def test_get_invalid_job(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(JobNotFoundError):
             self.manager.get(999)
     def test_mark_running(self):
         job_id = self.manager.submit("add", (4, 5))

@@ -157,7 +157,7 @@ class Utils:
             length = len(str(value))
             if length > DEFAULT_DIGIT_LIMIT:
                return length , True
-            return value, False
+        return value, False
 
     def add_digit_words(self, msg):
         return msg + " digits" 
