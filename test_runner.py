@@ -9,11 +9,16 @@ from task_runner import (
     ScientificCalculator,
     JobManager,
     Worker,
-    JobState,Job,Utils,JobNotFoundError,DEFAULT_DIGIT_LIMIT
+    JobState,
+    Job,
+    Utils,
+    JobNotFoundError,
+    DEFAULT_DIGIT_LIMIT,
+    TaskRunnerApp,
 )
 import threading
 from test_data import ScientificCalculatorData, JobManagerData,UtilsData
-
+from unittest.mock import patch
 
 
 class TestUtils(unittest.TestCase):
@@ -30,7 +35,7 @@ class TestUtils(unittest.TestCase):
         for value, expected_val, expected_flag in self.check_digit_cases:
             with self.subTest(expected=(expected_val, expected_flag)):
                 self.assertEqual(
-                    self.utils._check_digit(value),
+                    self.utils.check_digit(value),
                     (expected_val, expected_flag),
                 )
 
@@ -38,7 +43,7 @@ class TestUtils(unittest.TestCase):
         for value, expected_val, expected_flag in self.check_digit_passthrough_cases:
             with self.subTest(value=value):
                 self.assertEqual(
-                    self.utils._check_digit(value),
+                    self.utils.check_digit(value),
                     (expected_val, expected_flag),
                 )
 
@@ -272,7 +277,30 @@ class TestJobManager(unittest.TestCase):
         )
 
         self.manager.load()
+    def test_batch_submit(self):
+        ids = self.manager.batch_submit([("add", (1, 2)), ("mul", (3, 4))])
 
+        self.assertEqual(len(ids), 2)
+        self.assertEqual(len(set(ids)), 2)
+        self.assertEqual(self.manager.get(ids[0]).state, JobState.QUEUED)
+        self.assertEqual(self.manager.get(ids[1]).command, "mul")
+
+    def test_load_missing_file(self):
+        manager = JobManager(
+            self.calc, History(), self.utils, self.test_dir / "missing.json"
+        )
+        manager.load()
+        self.assertEqual(manager.jobs, {})
+
+    def test_load_corrupted_json(self):
+        bad_file = self.test_dir / "corrupt.json"
+        bad_file.write_text("{not valid json", encoding="utf-8")
+
+        manager = JobManager(self.calc, History(), self.utils, bad_file)
+        manager.load()
+
+        self.assertEqual(manager.jobs, {})
+        self.assertTrue(bad_file.with_name("corrupt.json.bak").exists())
     def tearDown(self):
         self.temp_dir.cleanup()
     def test_submit_adds_job_to_queue(self):
@@ -472,7 +500,103 @@ class TestCalculator(unittest.TestCase):
             with self.subTest(args=args), self.assertRaises(exc):
                 self.calc.calculate(*args)
    
+class _IsolatedTaskRunnerApp(TaskRunnerApp):
+    def _load_data(self) -> None: 
+        pass
 
+    def _load_manager(self) -> None:
+        pass
+
+    def start_worker(self) -> None:
+        pass
+
+class TestTaskRunnerApp(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.test_dir = Path(self.temp_dir.name)
+        with patch.object(History, "load", return_value=None), patch("logging.Logger.info"):
+            self.app = _IsolatedTaskRunnerApp()
+        self.app.history = History()
+        self.app.manager = JobManager(
+            self.app.calculator,
+            self.app.history,
+            self.app.utils,
+            self.test_dir / "jobs.json",
+        )
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_batch_queues_3_valid_skips_2_invalid(self):
+        batch_file = self.test_dir / "sums.txt"
+        batch_file.write_text(
+            "# comment\n"
+            "add 4 5\n"
+            "mul 2 3\n"
+            "div 1 0\n"
+            "fly 3\n"
+            "fact abc\n",
+            encoding="utf-8",
+        )
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.app._handle_batch((str(batch_file),))
+
+        text = out.getvalue()
+        self.assertEqual(len(self.app.manager.jobs), 3)
+        self.assertIn("Queued 3 jobs (1-3).", text)
+        self.assertIn("Skipped 2 invalid lines:", text)
+        self.assertIn("line 5:", text)
+        self.assertIn("line 6:", text)
+
+    def test_batch_missing_file(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.app._handle_batch((str(self.test_dir / "nope.txt"),))
+
+        self.assertIn("File not found: nope.txt", out.getvalue())
+
+    def test_submit_rejects_invalid_and_memory_commands(self):
+        bad_inputs = [
+            ("fly", "3"),
+            ("fact", "abc"),
+            ("add", "1"),
+            ("ms",),
+            ("mr",),
+            ("mc",),
+        ]
+        for args in bad_inputs:
+            with self.subTest(args=args):
+                self.assertIsNone(self.app._handle_submit(args))
+
+        self.assertEqual(len(self.app.manager.jobs), 0)
+
+    def test_handle_result_states(self):
+        jid = self.app.manager.submit("add", (4, 5))
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.app._handle_result((str(jid),))
+        self.assertEqual(out.getvalue().strip(), "QUEUED")
+
+        self.app.manager.finish(jid, 9)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.app._handle_result((str(jid),))
+        self.assertEqual(out.getvalue().strip(), "9")
+
+        fail_id = self.app.manager.submit("div", (1, 0))
+        self.app.manager.fail(fail_id, "cannot divide by zero")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.app._handle_result((str(fail_id),))
+        self.assertEqual(out.getvalue().strip(), "FAILED: cannot divide by zero")
+
+    def test_handle_result_unknown_id(self):
+        with self.assertLogs(self.app.logger, level="WARNING") as cm:
+            self.app._handle_result(("99",))
+        self.assertTrue(any("99" in msg for msg in cm.output))
 if __name__ == "__main__":
     unittest.main()
     # sci=ScientificCalculator()

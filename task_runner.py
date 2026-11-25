@@ -152,6 +152,7 @@ class Utils:
 
     def __init__(self,calculator: ScientificCalculator):
         self.calculator = calculator
+        self.memory = None
     def check_digit(self, value: int ) -> tuple[int, bool]:
         if isinstance(value, int) and not isinstance(value, bool):
             length = len(str(value))
@@ -242,7 +243,7 @@ class JobManager:
         # with self.lock:
         if job_id not in self.jobs:
             self.logger.error(f"No Jobs with id {job_id}")
-            raise JobNotFoundError(f"No Jobs with id{job_id}")
+            raise JobNotFoundError(job_id=job_id)
         return self.jobs[job_id]
     
     def record_calculation(self,op: str,operands: tuple,result: object,data_file: Path | None = None,memory: object = None) -> None:
@@ -252,7 +253,7 @@ class JobManager:
             self.history.add(Calculation(op, tuple(operands), value))
             target_file = data_file or self.data_file
             if target_file:
-                mem = self.get_memory() if (memory is None and self.get_memory) else memory
+                mem = self.utils.memory if memory is None else memory
                 try:
                     self.history.save(target_file, mem)
                 except OSError as e:
@@ -302,7 +303,7 @@ class JobManager:
 
     def mark_running(self, job_id: int) -> Job | None:
         with self.lock:
-            if job_id not in self.jobs:
+            if self.stop_event.is_set() or job_id not in self.jobs:
                 return None
             job = self.jobs[job_id]
             job.state = JobState.RUNNING
@@ -429,7 +430,7 @@ class TaskRunnerApp(CalculatorApp):
             "result": (1, "Show the result of a background job", "\nExample: \n> result 1 \n> Shows job result"),
             "workers": (0, "Show status of worker threads", "\nExample: \n> workers \n> Displays worker status"),
         })
-
+        self.utils.memory = self.memory
         self.app_handlers.update({
             "jobs": self._show_jobs,
             "workers": self._show_workers,
@@ -442,7 +443,12 @@ class TaskRunnerApp(CalculatorApp):
         }
         
         self._workers_started = False
-        self.manager = JobManager(self.calculator, self.history,self.utils )
+        self.manager = JobManager(
+                        self.calculator,
+                        self.history,
+                        self.utils,
+                        data_file=self.data_file,
+                    )
         
         self.workers = [Worker(f"worker-{i}", self.manager) for i in range(1, NUM_WORKERS + 1)]
         self.start_worker()
@@ -487,44 +493,65 @@ class TaskRunnerApp(CalculatorApp):
             handler(args)
 
 
-    def _validate_submit(self, args: tuple) -> tuple[str, tuple]:
+    def _validate_submit(self, args: tuple, allow_last: bool = False) -> tuple[str, tuple]:
         if not args:
-            raise ValueError("Usage: submit <operation> <arguments>")
+            raise InvalidJobError("", "Usage: submit <operation> <arguments>")
 
         op, operands = args[0].lower(), args[1:]
 
         if op not in self.command_info:
-            raise ValueError(f"Unknown command '{op}'")
+            raise InvalidJobError(op, f"Unknown command '{op}'")
 
         job_commands = self.command_info.keys() - self.app_handlers.keys() - self.task_handlers.keys()
         if op not in job_commands:
-            raise ValueError(f"{op} can't be run as a job")
+            raise InvalidJobError(op, f"{op} can't be run as a job")
 
         expected = self.command_info[op][0]
         if len(operands) != expected:
-            raise ValueError(f"{op} requires {expected} argument(s)")
+            raise InvalidJobError(op, f"{op} requires {expected} argument(s)")
 
-        if any(s.lower() == "last" for s in operands):
-            raise ValueError("'last' is not allowed in jobs")
+        converted_list = []
+        for s in operands:
+            if s.lower() == "last":
+                if not allow_last:
+                    raise InvalidJobError(op, "'last' is not allowed in batch files")
+                with self.manager.lock:
+                    last_val = self.history.last_result()
+                if last_val is None:
+                    raise InvalidJobError(op, "No previous result for 'last'")
+                converted_list.append(last_val)
+            else:
+                val = self._detect_numeric_type(s)
+                if val is None:
+                    raise InvalidJobError(op, f"'{s}' is not a valid number")
+                converted_list.append(val)
 
-        converted = tuple(self._detect_numeric_type(s) for s in operands)
-        if None in converted:
-            bad = operands[converted.index(None)]
-            raise ValueError(f"'{bad}' is not a valid number")
+        converted = tuple(converted_list)
+        try:
+            self.validate_request(op, *converted)
+            if op in self.calculator.scientific_operations:
+                for val in converted:
+                    self.calculator._validate_number(val, op)
+                self.calculator.validation[op](*converted)
+        except ValueError as e:
+            raise InvalidJobError(op, str(e)) from e
 
-        self.validate_request(op, *converted)
         return op, converted
 
     def _handle_submit(self, args: tuple) -> int | None:
         try:
-            op, converted = self._validate_submit(args)
-        except ValueError as e:
+            op, converted = self._validate_submit(args, allow_last=True)
+        except (ValueError,InvalidJobError )as e:
             if str(e):
                 self.logger.warning(str(e))
             return None
 
         job_id = self.manager.submit(op, converted)
-        print(f"Job {job_id} queued")
+        last_idx = next((i for i, s in enumerate(args[1:]) if s.lower() == "last"), None)
+        if last_idx is not None:
+            print(f"Job {job_id} queued   (last = {converted[last_idx]})")
+        else:
+            print(f"Job {job_id} queued")
         return job_id
 
     def _read_batch_file(self, path: Path) -> list[str] | None:
@@ -552,7 +579,7 @@ class TaskRunnerApp(CalculatorApp):
                 continue
             try:
                 valid_jobs.append(self._validate_submit(parts))
-            except (ValueError, TypeError) as e:
+            except (ValueError,InvalidJobError, TypeError) as e:
                 invalid.append((line_no, str(e)))
 
         queued_ids = self.manager.batch_submit(valid_jobs)
@@ -629,7 +656,7 @@ class TaskRunnerApp(CalculatorApp):
             self.manager.save()
 
         word = "job" if total == 1 else "jobs"
-        print(f"Saved {total} {word} to {self.manager.jobs_file.name}. Goodbye!")
+        print(f"Saved {total} {word} to {self.manager.jobs_file.name}.")
         super()._exit()
 
     def handle_command(self, command: str) -> None:
@@ -640,7 +667,10 @@ class TaskRunnerApp(CalculatorApp):
             return
 
         super().handle_command(command)
+        self.utils.memory = self.memory
 
 if __name__ == "__main__":
-    TaskRunnerApp().run()
+    task = TaskRunnerApp()
+    task.run()
+    # TaskRunnerApp().run()
     # print("Go Home")
