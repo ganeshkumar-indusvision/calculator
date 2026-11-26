@@ -364,19 +364,13 @@ class TestJobManager(unittest.TestCase):
 
         self.assertIsNone(job.duration)
     def test_show_jobs(self):
-        output = io.StringIO()
-
-        with redirect_stdout(output):
-            self.manager.show_jobs()
-
         expected = (
             " 1  add 4 5          DONE    1.00s\n"
             " 2  primes 10        FAILED  interrupted\n"
             " 3  fib 10           FAILED  interrupted\n"
-            " 4  div 10 0         FAILED  Error: cannot divide by zero\n"
+            " 4  div 10 0         FAILED  Error: cannot divide by zero"
         )
-
-        self.assertEqual(output.getvalue(), expected)
+        self.assertEqual(self.manager.show_jobs(), expected)
     def test_finish_invalid_job(self):
         self.manager.finish(999, 100)
 
@@ -391,15 +385,10 @@ class TestJobManager(unittest.TestCase):
             self.calc,
             self.history,
             self.utils,
-            self.test_dir / "empty.json"
+            self.logger,
+            self.test_dir / "empty.json",
         )
-
-        output = io.StringIO()
-    
-        with redirect_stdout(output):
-            manager.show_jobs()
-    
-        self.assertIn("No jobs yet", output.getvalue())
+        self.assertEqual(manager.show_jobs(), "No jobs yet")
     def test_concurrent_submissions(self):
         
 
@@ -534,7 +523,6 @@ class TestTaskRunnerApp(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
-
     def test_batch_queues_3_valid_skips_2_invalid(self):
         batch_file = self.test_dir / "sums.txt"
         batch_file.write_text(
@@ -547,11 +535,10 @@ class TestTaskRunnerApp(unittest.TestCase):
             encoding="utf-8",
         )
 
-        out = io.StringIO()
-        with redirect_stdout(out):
+        with self.assertLogs(self.app.logger, level="INFO") as cm:
             self.app._handle_batch((str(batch_file),))
 
-        text = out.getvalue()
+        text = "\n".join(r.getMessage() for r in cm.records)
         self.assertEqual(len(self.app.manager.jobs), 3)
         self.assertIn("Queued 3 jobs (1-3).", text)
         self.assertIn("Skipped 2 invalid lines:", text)
@@ -559,11 +546,11 @@ class TestTaskRunnerApp(unittest.TestCase):
         self.assertIn("line 6:", text)
 
     def test_batch_missing_file(self):
-        out = io.StringIO()
-        with redirect_stdout(out):
+        with self.assertLogs(self.app.logger, level="WARNING") as cm:
             self.app._handle_batch((str(self.test_dir / "nope.txt"),))
 
-        self.assertIn("File not found: nope.txt", out.getvalue())
+        text = "\n".join(r.getMessage() for r in cm.records)
+        self.assertIn("File not found: nope.txt", text)
 
     def test_submit_rejects_invalid_and_memory_commands(self):
         bad_inputs = [
@@ -579,27 +566,23 @@ class TestTaskRunnerApp(unittest.TestCase):
                 self.assertIsNone(self.app._handle_submit(args))
 
         self.assertEqual(len(self.app.manager.jobs), 0)
-
     def test_handle_result_states(self):
         jid = self.app.manager.submit("add", (4, 5))
 
-        out = io.StringIO()
-        with redirect_stdout(out):
+        with self.assertLogs(self.app.logger, level="INFO") as cm:
             self.app._handle_result((str(jid),))
-        self.assertEqual(out.getvalue().strip(), "QUEUED")
+        self.assertEqual(cm.records[-1].getMessage(), "QUEUED")
 
         self.app.manager.finish(jid, 9)
-        out = io.StringIO()
-        with redirect_stdout(out):
+        with self.assertLogs(self.app.logger, level="INFO") as cm:
             self.app._handle_result((str(jid),))
-        self.assertEqual(out.getvalue().strip(), "9")
+        self.assertEqual(cm.records[-1].getMessage(), "9")
 
         fail_id = self.app.manager.submit("div", (1, 0))
         self.app.manager.fail(fail_id, "cannot divide by zero")
-        out = io.StringIO()
-        with redirect_stdout(out):
+        with self.assertLogs(self.app.logger, level="WARNING") as cm:
             self.app._handle_result((str(fail_id),))
-        self.assertEqual(out.getvalue().strip(), "FAILED: cannot divide by zero")
+        self.assertEqual(cm.records[-1].getMessage(), "FAILED: cannot divide by zero")
 
     def test_handle_result_unknown_id(self):
         with self.assertLogs(self.app.logger, level="WARNING") as cm:

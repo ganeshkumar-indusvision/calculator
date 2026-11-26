@@ -236,10 +236,10 @@ class JobManager:
         return job
 
     def get(self, job_id: int) -> Job: 
-        # with self.lock:
-        if job_id not in self.jobs:
-            raise JobNotFoundError(job_id=job_id)
-        return self.jobs[job_id]
+        with self.lock:
+            if job_id not in self.jobs:
+                raise JobNotFoundError(job_id=job_id)
+            return self.jobs[job_id]
     
     def record_calculation(self,op: str,operands: tuple,result: object,data_file: Path | None = None,memory: object = None) -> None:
         with self.lock:
@@ -648,14 +648,13 @@ class TaskRunnerApp(CalculatorApp):
             running = sum(1 for w in self.workers if w.current_job is not None)
             if running:
                 word = "job" if running == 1 else "jobs"
-                self.logger.info(f"Waiting for {running} {word} to finish...", flush=True)
+                self.logger.info(f"Waiting for {running} {word} to finish...")
             for worker in self.workers:
                 worker.thread.join()
 
-        with self.manager.lock:
-            total = len(self.manager.jobs)
-            self.logger.info("Saving jobs, please wait...", flush=True)
-            self.manager.save()
+        total = len(self.manager.jobs)
+        self.logger.info("Saving jobs, please wait...")
+        self.manager.save()
 
         word = "job" if total == 1 else "jobs"
         self.logger.info(f"Saved {total} {word} to {self.manager.jobs_file.name}.")
@@ -670,7 +669,10 @@ class TaskRunnerApp(CalculatorApp):
 
         super().handle_command(command)
         self.utils.memory = self.memory
-
+    def __del__(self) -> None:
+        if hasattr(self, "manager"):
+            self.manager.logger.handlers.clear()
+        super().__del__()
 if __name__ == "__main__":
     task = TaskRunnerApp()
     task.run()
