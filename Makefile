@@ -1,6 +1,6 @@
 .PHONY: test test-calculator test-history test-app run clean
 
-PYTHON ?= python3
+PYTHON ?= python
 
 # Run the complete test suite.
 test:

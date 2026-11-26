@@ -266,7 +266,7 @@ class TestCalculatorApp(unittest.TestCase):
 
     def _run(self, cmd: str) -> str:
         """Run one command and capture its logged output as a single string."""
-        with self.assertLogs(logger=self.app.logger, level="DEBUG") as cm:
+        with self.assertLogs(logger=self.app.logger, level="INFO") as cm:
             self.app.handle_command(cmd)
         return "\n".join(record.getMessage() for record in cm.records)
 

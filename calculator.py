@@ -1,11 +1,10 @@
 # calculator.py
 import json
 import logging
-import readline
 from collections import namedtuple
-from pathlib import Path
 from decimal import Decimal, ROUND_FLOOR, InvalidOperation
-
+from pathlib import Path
+import readline
 DATA_FILE = Path("output/calculator_data.json")
 LOG_FILE = Path("logs/calculator.log")
 
@@ -25,6 +24,8 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         })
 
+
+
 class Calculator:
     """Performs arithmetic operations."""
 
@@ -40,25 +41,25 @@ class Calculator:
             "sqrt": (1, lambda a: a.sqrt()),
             "abs": (1, lambda a: abs(a)),
         }
-
-    def calculate(self, *args: object) -> int | float:
-        """Validate the request, run the operation, and return a clean result."""
-        self._validate_input(*args)
-        op = str(args[0])
-        operands = [Decimal(str(v)) for v in args[1:] if v is not None]
-        return self._validate_output(self.operations[op][1](*operands))
-    
-    def _validate_output(self, result: Decimal) -> int | float:
-        """Convert a whole Decimal to int, otherwise return float."""
-        return int(result) if result == result.to_integral_value() else round(float(result),3)
-
-    def _validate_number(self, number: object) -> None:
-        """Raise if number is not a finite int/float/Decimal (bool is rejected)."""
-        if not isinstance(number, (int, float, Decimal)) or isinstance(number, bool):
-            raise ValueError(f"{number!r} is not a valid number")
-        if not Decimal(str(number)).is_finite():
-            raise ValueError(f"{number!r} is not a finite number")
-
+        self.validation = {
+            "div":self._check_divisor,
+            "mod":self._check_divisor,
+            "sqrt":self._check_sqrt,
+            "pow":self._check_pow,
+        }
+        
+    def _check_divisor(self,a:float,b=int|float) -> None:
+        if b == 0 :
+            raise ZeroDivisionError("Error: cannot divide by zero")
+    def _check_sqrt(self, a:int|float) -> None:
+        if a < 0:
+            raise ValueError("Error: cannot take square root of a negative number")
+    def _check_pow(self, a: int|float, b: int|float) -> None:
+        if a == 0 and b < 0:
+            raise ZeroDivisionError("Error: cannot raise 0 to a negative power")
+        if a < 0 and Decimal(str(b)) != Decimal(str(b)).to_integral_value():
+            raise ValueError("Error: cannot raise a negative number to a fractional power")
+        
     def _validate_input(self, *args: object) -> None:
         """Validate an input request before running the operation."""
         if not args:
@@ -74,18 +75,37 @@ class Calculator:
             raise ValueError(f"{op} takes exactly {n} argument{'s' if n != 1 else ''}")
 
         for v in operands:
-            self._validate_number(v)
+            self._validate_number(v,op)
+        validator = self.validation.get(op)
+        if validator is not None:
+            validator(*operands)
 
-        if op in ("div", "mod") and operands[1] == 0:
-            raise ZeroDivisionError("Error: cannot divide by zero")
-        if op == "sqrt" and operands[0] < 0:
-            raise ValueError("Error: cannot take square root of a negative number")
-        if op == "pow" and operands[0] == 0 and operands[1] < 0:
-            raise ZeroDivisionError("Error: cannot raise 0 to a negative power")
-        if op == "pow" and operands[0] < 0 and Decimal(str(operands[1])) != Decimal(str(operands[1])).to_integral_value():
-            raise ValueError("Error: cannot raise a negative number to a fractional power")
+    def _validate_number(self, number: object, op: str) -> None:
+        if not isinstance(number, (int, float, Decimal)) or isinstance(number, bool):
+            raise ValueError(f"{number!r} is not a valid number")
+        if not Decimal(str(number)).is_finite():
+            raise ValueError(f"{number!r} is not a finite number")
+    
+    
+    def _validate_output(self, op: str, *results: Decimal) -> int | float | tuple:
+        """Convert whole Decimals to int, otherwise return float."""
+        converted = tuple(
+            int(result) if result == result.to_integral_value()
+            else round(float(result), 3)
+            for result in results
+        )
 
+        return converted[0] if len(converted) == 1 else converted
 
+    def calculate(self, *args: object) -> int | float:
+        """Validate the request, run the operation, and return a clean result."""
+        self._validate_input(*args)
+        op = str(args[0])
+        operands = [Decimal(str(v)) for v in args[1:] if v is not None]
+        return self._validate_output(op, self.operations[op][1](*operands))
+    
+    
+    
 class History:
     """Stores past calculations in order."""
 
@@ -142,11 +162,18 @@ class History:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, OSError):
+            if not isinstance(data, dict):
+                raise TypeError("Top-level JSON must be an object")
+            entries = [
+                Calculation(item["op"], tuple(item["operands"]), item["result"])
+                for item in data.get("history", [])
+            ]
+            memory = data.get("memory")
+        except (json.JSONDecodeError, OSError, KeyError, TypeError, AttributeError, ValueError):
             backup = path.with_name(path.name + ".bak")
             try:
                 path.rename(backup)
-                msg = f"Warning: {path} was not valid JSON. Renamed to {backup.name}."
+                msg = f"Warning: {path} was invalid. Renamed to {backup.name}."
             except OSError:
                 msg = f"Warning: could not read {path}. Starting empty."
             if callable(on_warning):
@@ -154,13 +181,8 @@ class History:
             self._entries = []
             return None
 
-        # Convert operand lists back to tuples for immutability and memory consistency.
-        self._entries = [
-            Calculation(item["op"], tuple(item["operands"]), item["result"])
-            for item in data.get("history", [])
-        ]
-        return data.get("memory")
-
+        self._entries = entries
+        return memory
     def clear(self) -> None:
         """Remove all entries from history."""
         self._entries = []
@@ -186,7 +208,7 @@ class CalculatorApp:
         # added this becuase once i initalise the CalculatorApp class it fill be initiating calcualtor.
         self.calculator = self._make_calculator()
         self.data_file = DATA_FILE
-        self.history = self._make_history()
+        self.history = History()
         self.memory = None
         self.running = True
 
@@ -224,8 +246,10 @@ class CalculatorApp:
         }
         self._calculator_logger_init()
         self._load_history()
+        
 
-    def _display_result(self, result):
+    def _display_result(self,op, operands, result):
+        self.logger.debug(f"{op} {operands} {result}")
         self.logger.info("%s", result)
 
     def _record_result(self, op, operands, result):
@@ -234,18 +258,13 @@ class CalculatorApp:
             self.history.save(self.data_file, self.memory)
         except OSError as e:
             self.logger.warning(f"Warning: could not save history: {e}")
-
     def _make_calculator(self) -> Calculator:
         """Factory for the calculator instance. Override to use a subclass."""
         return Calculator()
-    # I have created new class in scitific because there is modification result
-    def _make_history(self) -> History:
-        """Factory for the history instance. Override to use a subclass."""
-        return History()
 
     def _calculator_logger_init(self) -> None:
         self.logger = logging.getLogger(f"{__name__}.{id(self)}")
-        self.logger.setLevel(logging.DEBUG)
+        self.logger.setLevel(logging.INFO)
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(logging.Formatter("%(message)s"))
         try:
@@ -260,7 +279,6 @@ class CalculatorApp:
     def _load_history(self) -> None:
         self.memory = self.history.load(self.data_file, on_warning=self.logger.warning)
         self.logger.info(f"Loaded {len(self.history)} past calculations from {self.data_file}")
-        self.logger.info("Python Calculator — type 'help' for commands")
 
     def _exit(self) -> None:
         """Save state and stop the loop."""
@@ -427,11 +445,12 @@ class CalculatorApp:
         result = self.calculator.calculate(op, *converted)
 
         # I changed result to differetn fromate for reporting to user so i want to isolate someparts.
-        self._display_result(result)
+        self._display_result(op, converted, result)
         self._record_result(op, converted, result)
 
     def run(self) -> None:
         """Run the interactive input loop."""
+        self.logger.info("Python Calculator — type 'help' for commands")
         try:
             while self.running:
                 try:

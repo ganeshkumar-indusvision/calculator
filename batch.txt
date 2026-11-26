@@ -1,0 +1,10 @@
+primes 2000000
+primes 2000000
+primes 2000000
+primes 2000000
+primes 2000000
+primes 2000000
+primes 2000000
+primes 2000000
+primes 2000000
+primes 2000000

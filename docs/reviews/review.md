@@ -1,0 +1,35 @@
+
+4. practicaly understand use of lock
+
+## Review-1: Addressing Comments
+
+
+### For Jobs store use list instead of dict.
+1. This can be done but as per doc I should implement in dict only (refer: TR-13)
+2. Also using list is bad approach. In future if we want to delete specific job we can delete in list but (waste of space alloted to list)
+
+
+### Use Inheritence for validation input and output.
+
+1. Initial comment was use diction initialised in `__init__` block.
+2. created diction pointing to validation.
+3. Reuse most of the feature of previous calculator functions as much as possible.
+4. Use function overiding as much as possible.
+
+### Count prime number <= 1 is a wrong implementation
+
+1. prime number <= 1 returns biggest number as 0 which is wrong.
+2. Fixed it adding ValueError
+
+
+## Result should be having value but only when printing print digit if >=50
+
+1. Fixing accuracy issue with factorial with big value.
+2. validated test.
+3. Removed unwanted raise value error.
+
+
+# Clarification
+
+## How to handle stats if we include primes.
+
