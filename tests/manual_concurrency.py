@@ -4,11 +4,10 @@ import threading
 import time
 from pathlib import Path
 
-import calculator
-from task_runner import TaskRunnerApp, JobState 
+from src.calculator import TaskRunnerApp, JobState 
 import sys
 sys.setswitchinterval(1e-6)  
-TEST_DIR = Path("tests")
+TEST_DIR = Path("tmp/concurrency")
 
 
 class NoLock:
@@ -23,7 +22,7 @@ class NoLock:
 def fresh_test_dir():
     if TEST_DIR.exists():
         shutil.rmtree(TEST_DIR)
-    TEST_DIR.mkdir()
+    TEST_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def wait_for_all_jobs(app, n_jobs, timeout=30):
@@ -41,10 +40,7 @@ def wait_for_all_jobs(app, n_jobs, timeout=30):
 
 def run(use_lock: bool, n_jobs: int = 100):
     fresh_test_dir()
-    calculator.DATA_FILE = TEST_DIR / "calc.json"
-
-    app = TaskRunnerApp()
-    app.manager.jobs_file = TEST_DIR / "jobs.json"
+    app = TaskRunnerApp(data_file=TEST_DIR / "calc.json", log_file=TEST_DIR / "calculator.log", jobs_file=TEST_DIR / "jobs.json")
     # workers are already started by TaskRunnerApp.__init__ — don't stop them,
     # we need them running so jobs actually reach DONE/FAILED
 

@@ -10,4 +10,7 @@ calculator.log
 
 logs/*
 output/*
-tests/*
+tests/**/*.json
+tests/**/*.json.*
+tests/**/*.tmp
+tmp/

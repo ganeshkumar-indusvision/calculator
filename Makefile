@@ -1,10 +1,10 @@
-.PHONY: test test-calculator test-history test-app run clean
+.PHONY: test test-calculator test-history test-app run run-worker lint clean
 
-PYTHON ?= python
+PYTHON ?= python3
 
 # Run the complete test suite.
 test:
-	$(PYTHON) -m unittest -v test_calculator.py
+	$(PYTHON) -m unittest discover -s tests -t . -v
 
 # Run the calculator arithmetic tests.
 test-runner:
@@ -23,7 +23,15 @@ test-app:
 
 # Start the calculator application.
 run:
-	$(PYTHON) calculator.py
+	$(PYTHON) main.py
+
+# Start the calculator application with background workers.
+run-worker:
+	$(PYTHON) main.py --worker
+
+# Lint source, tests, and entrypoint.
+lint:
+	ruff check src tests main.py
 
 # Remove generated Python cache files.
 clean:
