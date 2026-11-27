@@ -103,9 +103,7 @@ class Calculator:
         op = str(args[0])
         operands = [Decimal(str(v)) for v in args[1:] if v is not None]
         return self._validate_output(op, self.operations[op][1](*operands))
-    
-    
-    
+
 class History:
     """Stores past calculations in order."""
 

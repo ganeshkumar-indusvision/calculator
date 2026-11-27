@@ -292,11 +292,15 @@ class JobManager:
                 "finished_at":job.finished_at,}
               for job_id,job in self.jobs.items()
             }
-            self.jobs_file.parent.mkdir(parents= True,exist_ok=True)
-            temp_file = self.jobs_file.with_name(self.jobs_file.name + ".tmp")
-            with open(temp_file ,"w",encoding="utf-8") as f:
-                json.dump(data,f,indent=2)
-            os.replace(temp_file,self.jobs_file)
+            try:
+                self.jobs_file.parent.mkdir(parents=True, exist_ok=True)
+                # This was causing issues when thread was trying write one same temp file.
+                temp_file = self.jobs_file.with_name(self.jobs_file.name + f".{threading.get_ident()}.tmp")
+                with open(temp_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+                os.replace(temp_file, self.jobs_file)
+            except OSError as e:
+                self.logger.warning(f"Could not save jobs: {e}")
 
 
     def mark_running(self, job_id: int) -> Job | None:
