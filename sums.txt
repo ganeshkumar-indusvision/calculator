@@ -1,4 +1,4 @@
-add 4 5
+add last 5
 primes 1000000
 fact 20000
 primes 1000000
@@ -25,5 +25,6 @@ primes 1000000
 fact 20000
 primes 1000000
 fact 20000
+
 div 1 0
 fly 3
