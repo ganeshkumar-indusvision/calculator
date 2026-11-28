@@ -1,6 +1,6 @@
 """Job rendering views."""
 
-from src.calculator.jobs.models import JobState
+from src.calculator.jobs.jobhelper import JobState
 
 
 class JobViews:

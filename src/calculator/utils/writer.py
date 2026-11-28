@@ -7,13 +7,13 @@ from pathlib import Path
 
 
 class AtomicWriter:
-    def __init__(self, *, encoding: str = "utf-8") -> None:
+    def __init__(self, encoding: str = "utf-8") -> None:
         self.encoding = encoding
 
     def write_text(self, path, text: str) -> None:
         self._atomic_replace(Path(path), text)
 
-    def write_json(self, path, data, *, indent: int = 2) -> None:
+    def write_json(self, path, data,indent: int = 2) -> None:
         self._atomic_replace(Path(path), json.dumps(data, indent=indent))
 
     def _atomic_replace(self, path: Path, text: str) -> None:

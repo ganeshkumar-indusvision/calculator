@@ -5,13 +5,13 @@ import logging
 from src.calculator.apps.calculator_app import CalculatorApp
 from src.calculator.apps.runnerhelper.runnerbatch import BatchSubmission
 from src.calculator.apps.runnerhelper import RunnerHelper
-from src.calculator.jobs.models import JobState
+from src.calculator.jobs.jobhelper import JobState
 from src.calculator.core.calculator import Calculator
 from src.calculator.core.scientific import ScientificCalculator
 from src.calculator.config import NUM_WORKERS
 from src.calculator.utils.formatting import Utils
-from src.calculator.jobs.manager import JobManager
-from src.calculator.jobs.worker import Worker
+from src.calculator.jobs.jobhelper import JobManager
+from src.calculator.jobs.jobhelper import Worker
 
 class TaskRunnerApp(CalculatorApp, RunnerHelper, BatchSubmission):
     """The calculator app plus background job commands."""

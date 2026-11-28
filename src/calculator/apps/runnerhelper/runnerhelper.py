@@ -1,8 +1,8 @@
 """Runner command handlers mixin."""
 
 from src.calculator.core.calculator import Calculator
-from src.calculator.jobs.errors import InvalidJobError, JobNotFoundError
-from src.calculator.jobs.models import JobState
+from src.calculator.jobs.jobhelper import InvalidJobError, JobNotFoundError
+from src.calculator.jobs.jobhelper import JobState
 
 
 class RunnerHelper:

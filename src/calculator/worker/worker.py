@@ -1,10 +1,6 @@
 """Background worker threads."""
 
-import queue
-import threading
-
-from src.calculator.jobs.models import Job
-from src.calculator.jobs.manager import JobManager
+from src.calculator.worker import Job, JobManager, queue, threading
 
 class Worker:
     def __init__(self, name: str, manager: JobManager) -> None:

@@ -1,5 +1,3 @@
-"""Background job manager."""
-
 import json
 import logging
 import os
@@ -10,17 +8,23 @@ from pathlib import Path
 
 from src.calculator.core.history import History
 from src.calculator.core.models import Calculation
-from src.calculator.jobs.models import Job, JobState
+from src.calculator.jobs.jobhelper import Job, JobState
 from src.calculator.core.scientific import ScientificCalculator
 from src.calculator.config import JOBS_FILE
 from src.calculator.utils.formatting import Utils
 from src.calculator.utils.writer import AtomicWriter
 from src.calculator.utils.logging_setup import configure_worker_logger
-from src.calculator.jobs.errors import JobNotFoundError
-from src.calculator.jobs.views import JobViews
+from src.calculator.jobs.jobhelper import JobNotFoundError
+from src.calculator.jobs.jobhelper import JobViews
 
 class JobManager(JobViews):
-    """Owns jobs, the queue, the lock and saving. Safe to call from any thread."""
+    """Manage queued calculation jobs and their persisted state.
+
+    The manager creates and tracks jobs, coordinates access from multiple
+    threads, records completed calculations in the history, and persists job
+    and history data when required. Job results and failures can be queried by
+    their assigned integer IDs.
+    """
 
     def __init__(self, calculator: ScientificCalculator, history: History, utils: Utils,logger: logging.Logger, jobs_file: Path | None = None,data_file: Path | None = None) -> None:
         self.calculator = calculator
@@ -35,6 +39,9 @@ class JobManager(JobViews):
         self.logger = self._init_file_logger(logger)
         self.info_logger = logger
         self.data_file = data_file
+        self.atomic_writer = AtomicWriter()
+    
+    
     def batch_submit(self, jobs: list[tuple[str, tuple]]) -> list[int]:
         """Add multiple jobs to the queue and save once."""
         if not jobs:
@@ -120,7 +127,7 @@ class JobManager(JobViews):
               for job_id,job in self.jobs.items()
             }
             try:
-                AtomicWriter().write_json(self.jobs_file, data)
+                self.atomic_writer.write_json(self.jobs_file, data)
             except OSError as e:
                 self.logger.warning(f"Could not save jobs: {e}")
 

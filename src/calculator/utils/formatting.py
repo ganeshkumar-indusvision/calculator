@@ -45,6 +45,3 @@ class ResultFormatter:
 
 
 Utils = ResultFormatter
-
-
-from src.calculator.utils.logging_setup import JsonFormatter  # re-exported for compatibility

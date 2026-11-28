@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from src.calculator.jobs.errors import InvalidJobError
+from src.calculator.jobs.jobhelper import InvalidJobError
 
 
 class BatchSubmission:

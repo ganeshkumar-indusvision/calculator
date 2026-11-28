@@ -5,7 +5,7 @@ import readline
 
 from src.calculator.apps.calculatorhelper import CalculatorHelper
 from src.calculator.apps.calculatorhelper.commands import CALCULATOR_COMMANDS
-from src.calculator.apps.parsing import OperandParser
+from src.calculator.apps.calculatorhelper.parsing import OperandParser
 from src.calculator.core.history import History
 from src.calculator.core.models import Calculation
 from src.calculator.core.calculator import Calculator
